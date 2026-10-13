@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "PrintFlow",
+    "slug": "printflow",
+    "scheme": "printflow",
+    "version": "0.2.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#f5f7f4",
+    "newArchEnabled": true,
+    "ios": { "bundleIdentifier": "ng.printflow.app", "supportsTablet": true },
+    "android": { "package": "ng.printflow.app", "edgeToEdgeEnabled": true },
+    "web": { "bundler": "metro", "output": "single" },
+    "plugins": ["expo-router", "expo-secure-store", "expo-font", "expo-web-browser"],
+    "experiments": { "typedRoutes": false }
+  }
+}

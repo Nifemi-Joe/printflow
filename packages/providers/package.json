@@ -1,0 +1,20 @@
+{
+  "name": "@printflow/providers",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "nodemailer": "10.0.10",
+    "pino": "9.9.0"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "7.0.12",
+    "@types/smtp-server": "3.5.13",
+    "smtp-server": "3.18.5"
+  }
+}

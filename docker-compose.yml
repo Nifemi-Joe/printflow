@@ -1,0 +1,116 @@
+# Full PrintFlow stack for a single host: PostgreSQL, S3-compatible storage
+# (MinIO), ClamAV, the API, the worker and the web app.
+#
+#   cp .env.example .env     # fill in every value marked "set me"
+#   docker compose up --build
+#
+# Status: the Dockerfiles pass `docker build --check` and their runtime layouts
+# were exercised outside Docker, but the images have NOT been built in the
+# development environment (Docker Hub is unreachable there). See docs/QA_REPORT.md.
+#
+# This file is for a single host or a staging box. For production, put a TLS-
+# terminating reverse proxy in front of `web` (and `api` if mobile clients call
+# it directly), use managed PostgreSQL with backups, and see docs/DEPLOYMENT.md.
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgres://printflow:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/printflow
+  STORAGE_DRIVER: S3
+  S3_ENDPOINT: http://minio:9000
+  S3_REGION: us-east-1
+  S3_BUCKET: printflow
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY}
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: printflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: printflow
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U printflow"]
+      interval: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY}
+    volumes: [objects:/data]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      retries: 10
+
+  # Creates the private bucket once. Objects are never public: every download
+  # is a short-lived presigned URL issued by the API after an access check.
+  create-bucket:
+    image: minio/mc
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - mc alias set local http://minio:9000 "$$S3_ACCESS_KEY_ID" "$$S3_SECRET_ACCESS_KEY" && mc mb --ignore-existing local/printflow && mc anonymous set none local/printflow
+    environment:
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+    depends_on: { minio: { condition: service_healthy } }
+
+  clamav:
+    image: clamav/clamav:stable
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      retries: 20
+
+  migrate:
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    command: ["node", "dist/migrate.js", "up"]
+    environment:
+      DATABASE_URL: postgres://printflow:${POSTGRES_PASSWORD}@postgres:5432/printflow
+    depends_on: { postgres: { condition: service_healthy } }
+
+  api:
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    env_file: .env
+    environment:
+      <<: *backend-env
+      PORT: "4000"
+    ports: ["4000:4000"]
+    read_only: true
+    tmpfs: [/tmp]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      create-bucket: { condition: service_completed_successfully }
+
+  worker:
+    build: { context: ., dockerfile: apps/worker/Dockerfile }
+    env_file: .env
+    environment:
+      <<: *backend-env
+      SCANNER: CLAMAV
+      CLAMD_HOST: clamav
+    read_only: true
+    tmpfs: [/tmp]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      create-bucket: { condition: service_completed_successfully }
+      clamav: { condition: service_healthy }
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        API_ORIGIN: http://api:4000
+        NEXT_PUBLIC_ONBOARDING_EMAIL: ${NEXT_PUBLIC_ONBOARDING_EMAIL:-}
+    ports: ["3000:3000"]
+    read_only: true
+    tmpfs: [/tmp]
+    depends_on: [api]
+
+volumes:
+  pgdata:
+  objects:

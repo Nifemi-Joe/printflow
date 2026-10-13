@@ -1,0 +1,14 @@
+**/node_modules
+**/dist
+**/dist-*
+**/.next
+**/.expo
+**/test-results
+**/playwright-report
+**/*.tsbuildinfo
+storage-data
+.git
+.env
+.env.*
+!.env.example
+docs/qa/screenshots

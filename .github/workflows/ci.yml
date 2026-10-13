@@ -1,0 +1,179 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "10.28.0"
+
+jobs:
+  checks:
+    name: Lint, typecheck, unit tests, audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: "${{ env.PNPM_VERSION }}" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: pnpm }
+      - name: Document tools used by the documents package tests
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-writer-nogui qpdf poppler-utils
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: Dependency audit (production dependencies, high and critical)
+        run: pnpm audit --prod --audit-level high
+
+  database:
+    name: Migrations and database-backed tests (API, worker, schema)
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: printflow
+          POSTGRES_PASSWORD: printflow_dev
+          POSTGRES_DB: printflow
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U printflow" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://printflow:printflow_dev@localhost:5432/printflow
+      TEST_DATABASE_URL: postgres://printflow:printflow_dev@localhost:5432/printflow_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: "${{ env.PNPM_VERSION }}" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: pnpm }
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-writer-nogui qpdf poppler-utils
+      - run: pnpm install --frozen-lockfile
+      - name: Apply migrations to an empty database
+        run: pnpm db:migrate && pnpm db:status
+      - name: Migrations are idempotent
+        run: pnpm db:migrate | grep -q "database is up to date"
+      - run: pnpm test:db
+
+  build:
+    name: Build, OpenAPI drift
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: "${{ env.PNPM_VERSION }}" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: docs/openapi.json matches the code
+        run: pnpm openapi && git diff --exit-code docs/openapi.json
+
+  e2e:
+    name: Browser tests (desktop, tablet, mobile)
+    runs-on: ubuntu-24.04
+    needs: [checks]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: printflow
+          POSTGRES_PASSWORD: printflow_dev
+          POSTGRES_DB: printflow
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U printflow" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      NODE_ENV: development
+      DATABASE_URL: postgres://printflow:printflow_dev@localhost:5432/printflow
+      SESSION_SECRET: ci-session-secret-0123456789abcdefghijklmn
+      PICKUP_CODE_PEPPER: ci-pickup-pepper-0123456789abcdefghijklm
+      MFA_ENCRYPTION_KEY: cXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXE=
+      STORAGE_DRIVER: LOCAL
+      STORAGE_DIR: /tmp/pf-storage
+      STORAGE_SIGNING_SECRET: ci-storage-secret-0123456789abcdefghijk
+      PUBLIC_API_URL: http://localhost:3000/api
+      PUBLIC_WEB_URL: http://localhost:3000
+      CORS_ORIGINS: http://localhost:3000
+      PAYMENT_PROVIDER: TEST
+      EMAIL_DRIVER: LOG
+      # Texts go to the API log; the browser tests read sign-in codes from there.
+      SMS_DRIVER: LOG
+      E2E_API_LOG: /tmp/api.log
+      # Development only: ClamAV is exercised by the documents tests against a protocol fake.
+      SCANNER: NONE
+      LOG_LEVEL: warn
+      DEMO_PASSWORD: Demo-Password-2026
+      # The suite signs in many times from one IP; production limits apply at scale 1.
+      RATE_LIMIT_SCALE: "20"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: "${{ env.PNPM_VERSION }}" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: pnpm }
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-writer-nogui qpdf poppler-utils
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @printflow/web exec playwright install --with-deps chromium
+      - run: pnpm db:migrate && pnpm db:seed
+      - name: Build
+        run: pnpm --filter @printflow/api --filter @printflow/worker build && API_ORIGIN=http://localhost:4000 pnpm --filter @printflow/web build
+      - name: Start API, worker and web
+        run: |
+          (cd apps/api && nohup node dist/main.js > /tmp/api.log 2>&1 &)
+          (cd apps/worker && POLL_INTERVAL_MS=500 nohup node dist/main.js > /tmp/worker.log 2>&1 &)
+          (cd apps/web && NODE_ENV=production nohup node node_modules/next/dist/bin/next start -p 3000 > /tmp/web.log 2>&1 &)
+          for i in $(seq 1 60); do curl -sf http://localhost:3000/api/v1/health && break; sleep 1; done
+      - run: pnpm --filter @printflow/web exec playwright test
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failure
+          path: |
+            apps/web/test-results
+            /tmp/api.log
+            /tmp/worker.log
+            /tmp/web.log
+
+  mobile:
+    name: Mobile app (typecheck, Android and web bundles)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: "${{ env.PNPM_VERSION }}" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - working-directory: apps/mobile
+        run: |
+          npx tsc --noEmit
+          npx expo export --platform android --output-dir dist-android
+          npx expo export --platform web --output-dir dist-web
+
+  docker:
+    name: Container images
+    runs-on: ubuntu-24.04
+    needs: [checks]
+    strategy:
+      matrix:
+        app: [api, worker, web]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint Dockerfile
+        run: docker build --check -f apps/${{ matrix.app }}/Dockerfile .
+      - name: Build image
+        run: docker build -f apps/${{ matrix.app }}/Dockerfile -t printflow-${{ matrix.app }}:ci .
+      - name: Worker image has its document tools
+        if: matrix.app == 'worker'
+        run: docker run --rm --entrypoint sh printflow-worker:ci -c "soffice --version && qpdf --version && pdftoppm -v"

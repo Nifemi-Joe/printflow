@@ -1,0 +1,62 @@
+{
+  "name": "printflow",
+  "private": true,
+  "version": "0.2.0",
+  "description": "PrintFlow \u2014 digital printing platform for Nigerian universities",
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "for p in pricing domain data storage documents providers; do tsc -p packages/$p --noEmit || exit 1; done && tsc -p db --noEmit && pnpm -r --filter './apps/*' typecheck",
+    "lint": "eslint .",
+    "test": "vitest run --project unit",
+    "test:db": "vitest run --project db",
+    "test:all": "vitest run",
+    "db:migrate": "tsx --env-file=.env db/scripts/migrate.ts up",
+    "db:status": "tsx --env-file=.env db/scripts/migrate.ts status",
+    "seed": "tsx --env-file=.env apps/api/scripts/seed-demo.ts",
+    "dev:api": "tsx watch --env-file=.env apps/api/src/main.ts",
+    "dev:worker": "pnpm --filter @printflow/worker dev",
+    "dev:web": "pnpm --filter @printflow/web dev",
+    "build": "pnpm -r --filter ./apps/* build",
+    "openapi": "pnpm --filter @printflow/api openapi",
+    "check": "pnpm lint && pnpm typecheck && pnpm test:all"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "eslint": "^9.17.0",
+    "pg": "^8.13.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.0",
+    "vitest": "^3.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "argon2",
+      "esbuild",
+      "sharp",
+      "@nestjs/core",
+      "unrs-resolver"
+    ],
+    "overrides": {
+      "react": "19.1.0",
+      "react-dom": "19.1.0",
+      "react-native": "0.81.5",
+      "postcss": "8.5.28",
+      "sharp": "0.35.5"
+    },
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-5p2g-fcmc-qvqq",
+        "GHSA-w3rx-r6r6-pgpr",
+        "GHSA-86w9-cpqp-85rv",
+        "GHSA-vfj7-8cjw-p6xm"
+      ]
+    }
+  }
+}

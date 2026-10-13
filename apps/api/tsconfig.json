@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "ts-node": {
+    "compilerOptions": {
+      "experimentalDecorators": true
+    }
+  },
+  "compilerOptions": {
+    "rootDir": "../..",
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "exactOptionalPropertyTypes": false,
+    "types": ["node"]
+  },
+  "include": ["src", "test", "scripts", "../../packages/*/src"]
+}
