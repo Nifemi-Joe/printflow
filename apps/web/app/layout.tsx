@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { PwaRegister } from "@/components/Pwa";
 import { SessionProvider } from "@/lib/session";
 import "./globals.css";
+import { Analytics } from "@vercel/analytics/next"
 
 export const metadata: Metadata = {
   title: { default: "PrintFlow — campus printing without the queue", template: "%s | PrintFlow" },
@@ -48,6 +49,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body suppressHydrationWarning>
       <PwaRegister />
       <SessionProvider>{children}</SessionProvider>
+      <Analytics />
       </body>
       </html>
   );

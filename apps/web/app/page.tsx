@@ -1,4 +1,3 @@
-import { Analytics } from "@vercel/analytics/next"
 import Link from "next/link";
 import { Journey } from "@/components/landing/Journey";
 import { OnboardingForm } from "@/components/landing/OnboardingForm";
