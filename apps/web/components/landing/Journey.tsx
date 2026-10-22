@@ -54,32 +54,53 @@ export function Journey({ lead, children, steps }: { lead: ReactNode; children: 
     }, []);
 
     // Read how far through the pinned section we are, once per frame at most.
+    //
+    // Everything that does not change while scrolling is measured once and cached.
+    // Asking for getComputedStyle or offsetHeight inside a scroll handler forces
+    // the browser to recompute layout on every frame, which is exactly the stutter
+    // it looks like: the page fighting itself rather than the scene being heavy.
     useEffect(() => {
         let frame = 0;
+        let stickyTop = 0;
+        let stageHeight = 0;
+
+        const remeasure = () => {
+            const pinned = stage.current;
+            if (!pinned) return;
+            stickyTop = parseFloat(getComputedStyle(pinned).top) || 0;
+            stageHeight = pinned.offsetHeight;
+        };
+
         const measure = () => {
             frame = 0;
             const box = container.current;
-            const pinned = stage.current;
-            if (!box || !pinned) return;
+            if (!box || stageHeight === 0) return;
+            // One layout read per frame, and nothing else.
             const r = box.getBoundingClientRect();
-            const travel = r.height - pinned.offsetHeight;
+            const travel = r.height - stageHeight;
             if (travel <= 0) return;
-            const top = parseFloat(getComputedStyle(pinned).top) || 0;
-            const p = Math.min(1, Math.max(0, (top - r.top) / travel));
+            const p = Math.min(1, Math.max(0, (stickyTop - r.top) / travel));
             progress.current = p;
             const i = Math.min(steps - 1, Math.max(0, Math.round(p * (steps - 1))));
             setStageIndex((prev) => (prev === i ? prev : i));
         };
+
         const onScroll = () => {
             if (!frame) frame = requestAnimationFrame(measure);
         };
+        const onResize = () => {
+            remeasure();
+            onScroll();
+        };
+
+        remeasure();
         measure();
         window.addEventListener("scroll", onScroll, { passive: true });
-        window.addEventListener("resize", onScroll, { passive: true });
+        window.addEventListener("resize", onResize, { passive: true });
         return () => {
             if (frame) cancelAnimationFrame(frame);
             window.removeEventListener("scroll", onScroll);
-            window.removeEventListener("resize", onScroll);
+            window.removeEventListener("resize", onResize);
         };
     }, [steps]);
 

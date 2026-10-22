@@ -12,8 +12,8 @@ import { Errors } from "../http/errors.js";
 import { RateLimiter } from "../http/rate-limit.js";
 import { Schemas } from "../http/schemas.js";
 import { parse } from "../http/validate.js";
-import { normalizeChannel } from "../infra/payment-provider.js";
-import { CONFIG, LOGGER, PG_POOL, STORAGE } from "../infra/tokens.js";
+import { normalizeChannel, type PaymentProvider } from "../infra/payment-provider.js";
+import { CONFIG, LOGGER, PAYMENT_PROVIDER, PG_POOL, STORAGE } from "../infra/tokens.js";
 import { z } from "zod";
 
 const PaystackEvent = z.object({
@@ -200,6 +200,90 @@ export class TestPaymentsController {
     );
     const result = await this.hooks.test(raw, this.hooks.signTest(raw));
     return { outcome: result, orderId: p.order_id, kind: p.kind, returnTo: p.returnTo };
+  }
+}
+
+/**
+ * Settles a payment by asking the provider, rather than waiting to be told.
+ *
+ * A webhook is the authority on what happened, but it is delivered to us — and
+ * it may be slow, blocked, or undeliverable (nothing can reach a laptop running
+ * on localhost). The student, meanwhile, is looking at the order they have just
+ * paid for. So when they come back from the provider's checkout, the page asks
+ * here, we ask the provider over our own authenticated connection, and the
+ * answer goes through exactly the same path a webhook would take: same
+ * `applyPaymentEvent`, same idempotency, same ledger. There is no shortcut that
+ * marks an order paid without the provider saying so.
+ */
+@Controller("v1/payments")
+export class PaymentsController {
+  constructor(
+      @Inject(PG_POOL) private readonly pool: Pool,
+      @Inject(Access) private readonly access: Access,
+      @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider | null,
+      @Inject(RateLimiter) private readonly limiter: RateLimiter,
+      @Inject(LOGGER) private readonly log: Logger,
+  ) {}
+
+  @Post(":reference/verify")
+  @HttpCode(200)
+  async verify(@Req() req: PfRequest, @Param("reference") reference: string) {
+    const a = this.access.user(req);
+    // Each call costs us a request to the provider, so it is bounded per person.
+    await this.limiter.hit(`payment-verify:user:${a.userId}`, 40, 300);
+
+    const mine = await this.pool.query<{ kind: string; status: string; order_id: string | null }>(
+        `SELECT 'ORDER' AS kind, p.status, p.order_id
+         FROM payments p JOIN orders o ON o.id = p.order_id
+        WHERE p.provider_reference = $1 AND o.student_user_id = $2
+       UNION ALL
+       SELECT 'TOPUP' AS kind, t.status, NULL AS order_id
+         FROM wallet_topups t
+        WHERE t.provider_reference = $1 AND t.user_id = $2`,
+        [reference, a.userId],
+    );
+    const row = mine.rows[0];
+    // Someone else's reference is indistinguishable from one that never existed.
+    if (!row) throw Errors.notFound("payment");
+
+    const settled = row.status === "SUCCEEDED" || row.status === "FAILED";
+    if (settled || !this.provider?.verify) {
+      return { reference, kind: row.kind, status: row.status, orderId: row.order_id, checked: false };
+    }
+
+    let v: { status: string; amountKobo: number; currency: string; id: string };
+    try {
+      v = await this.provider.verify(reference);
+    } catch (e) {
+      // The provider is the authority; if we cannot reach it we say so rather
+      // than guessing, and the reconciliation job will try again later.
+      this.log.warn({ err: e, reference }, "payment verification lookup failed");
+      throw Errors.unavailable("we could not reach the payment provider; this will settle on its own shortly", "VERIFY_UNAVAILABLE");
+    }
+
+    if (v.status === "success" || v.status === "failed") {
+      await withTransaction(this.pool, (c) =>
+          applyPaymentEvent(c, {
+            provider: "PAYSTACK",
+            eventId: `charge.${v.status}:${v.id}`,
+            eventType: v.status === "success" ? "charge.success" : "charge.failed",
+            reference,
+            amountKobo: v.amountKobo,
+            currency: v.currency,
+            // Our own authenticated call to the provider, not an inbound request.
+            signatureValid: true,
+            payload: { source: "verify-on-return" },
+          }),
+      );
+    }
+
+    const after = await this.pool.query<{ status: string }>(
+        row.kind === "ORDER"
+            ? `SELECT status FROM payments WHERE provider_reference = $1`
+            : `SELECT status FROM wallet_topups WHERE provider_reference = $1`,
+        [reference],
+    );
+    return { reference, kind: row.kind, status: after.rows[0]?.status ?? row.status, orderId: row.order_id, checked: true, providerStatus: v.status };
   }
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import * as THREE from "three";
 
@@ -285,6 +285,21 @@ function World({ progress }: { progress: MutableRefObject<number> }) {
     const ticket = useCanvasTexture(512, 724, drawTicket);
     const code = useCanvasTexture(512, 300, drawCode);
 
+    // In demand mode nothing renders until something asks for it, so scrolling is
+    // what wakes the scene up. The listener lives in here, inside the lazily
+    // loaded chunk, so the page that never shows 3D never pays for it.
+    const invalidate = useThree((s) => s.invalidate);
+    useEffect(() => {
+        invalidate();
+        const onScroll = () => invalidate();
+        window.addEventListener("scroll", onScroll, { passive: true });
+        window.addEventListener("resize", onScroll, { passive: true });
+        return () => {
+            window.removeEventListener("scroll", onScroll);
+            window.removeEventListener("resize", onScroll);
+        };
+    }, [invalidate]);
+
     // Reused so the per-frame work allocates nothing.
     const camAt = useMemo(() => new THREE.Vector3(), []);
     const lookAt = useMemo(() => new THREE.Vector3(), []);
@@ -293,8 +308,20 @@ function World({ progress }: { progress: MutableRefObject<number> }) {
     useFrame((state, delta) => {
         // Damped follow: scrolling sets a target, the scene catches up to it, so a
         // flick of the wheel never turns into a jolt.
-        eased.current += (progress.current - eased.current) * Math.min(1, delta * 3.2);
+        //
+        // The exponential form is what makes this feel the same everywhere. A plain
+        // `delta * k` lerp is frame-rate dependent: on a 120 Hz laptop delta halves,
+        // so the scene chases at half the rate and reads as laggy, while on a slow
+        // phone it snaps. This settles at the same speed in wall-clock time whatever
+        // the display is doing.
+        const gap = progress.current - eased.current;
+        eased.current += gap * (1 - Math.exp(-7 * delta));
         const p = Math.min(1, Math.max(0, eased.current));
+
+        // On demand: keep asking for frames only while there is still motion left.
+        // When the reader stops scrolling the scene stops rendering entirely, which
+        // is most of what it costs a mid-range phone to have this on the page.
+        if (Math.abs(gap) > 0.0002) state.invalidate();
 
         SHEET_PATH.getPoint(p, sheetAt);
         CAMERA_OFFSET.getPoint(p, camAt);
@@ -330,7 +357,7 @@ function World({ progress }: { progress: MutableRefObject<number> }) {
                 position={[4, 7, 6]}
                 intensity={1.25}
                 castShadow
-                shadow-mapSize={[1024, 1024]}
+                shadow-mapSize={[512, 512]}
                 shadow-bias={-0.0008}
                 shadow-camera-left={-8}
                 shadow-camera-right={8}
@@ -366,12 +393,13 @@ export default function JourneyScene({ progress, active }: { progress: MutableRe
             // `flat` turns off filmic tone mapping: this is white paper on a pale page,
             // and film curves make clean white read as dishwater grey.
             flat
-            dpr={[1, 1.6]}
+            dpr={[1, 1.4]}
             camera={{ position: [-4.1, 1.07, 1.97], fov: 42 }}
             gl={{ antialias: true, powerPreference: "low-power" }}
-            // Nothing is drawn while the stage is off screen: on a mid-range phone that
-            // is the difference between a warm battery and a flat one.
-            frameloop={active ? "always" : "never"}
+            // Nothing is drawn while the stage is off screen, and nothing is drawn
+            // while it is still: on a mid-range phone that is the difference between a
+            // warm battery and a flat one.
+            frameloop={active ? "demand" : "never"}
             aria-hidden="true"
         >
             <World progress={progress} />

@@ -11,7 +11,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  min-height: 64px;
+  min-height: 68px;
 }
 .site-header nav {
   display: flex;
@@ -31,39 +31,151 @@
   }
 }
 
-.hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
-  align-items: center;
-  gap: var(--space-6);
-  padding: var(--space-7) 0 var(--space-8);
+/* ---------------------------------------------------------------- the journey
+
+   The spine of the page. A stage holds still while the four steps scroll past
+   it, and the scene on that stage walks from a student's phone to a shop
+   counter as they do. The steps say everything on their own: the stage is the
+   illustration, never the message.                                           */
+
+.journey {
+  position: relative;
 }
-.hero h1 {
+
+.journey-lead {
+  padding: var(--space-7) 0 var(--space-5);
+}
+.journey-lead h1 {
   font-size: var(--t-4xl);
   font-variation-settings: "wdth" 85;
-  line-height: 0.98;
+  line-height: 0.95;
   letter-spacing: -0.035em;
-  max-width: 12ch;
-  margin-bottom: var(--space-5);
+  max-width: 11ch;
+  margin: 0 0 var(--space-5);
 }
-.hero .lede {
+.journey-lead .lede {
   font-size: var(--t-lg);
   color: var(--graphite);
-  max-width: 44ch;
+  max-width: 42ch;
+  margin: 0;
 }
-.hero-visual {
-  aspect-ratio: 1 / 0.85;
+.journey-cue {
+  margin: var(--space-6) 0 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--rule);
+  color: var(--graphite-2);
+  font-size: var(--t-sm);
+  max-width: 36ch;
+}
+
+.journey-stage {
+  position: sticky;
+  top: 69px;
+  height: 40vh;
+  min-height: 240px;
+  margin-bottom: var(--space-5);
+  /* Pinned over the steps on a phone, so it has to be opaque: the words scroll
+     under a panel, not behind a transparent one. Below the header's z-index. */
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+  z-index: 2;
+}
+.journey-stage canvas {
+  display: block;
   width: 100%;
+  height: 100%;
 }
-@media (max-width: 860px) {
-  .hero {
-    grid-template-columns: 1fr;
-    padding-top: var(--space-6);
+
+.journey-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.journey-step {
+  border-top: 2px solid var(--rule);
+  padding: var(--space-5) 0 var(--space-7);
+  /* The rule and the number mark where the reader is. The words never dim:
+     text you can only half-read is not a design choice worth making. */
+  transition: border-color 500ms ease;
+}
+.journey-n {
+  margin: 0 0 var(--space-3);
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: var(--t-lg);
+  font-variation-settings: "wdth" 85;
+  color: var(--graphite-2);
+  transition: color 500ms ease;
+}
+.journey-step h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--t-2xl);
+  letter-spacing: -0.025em;
+  max-width: 16ch;
+}
+.journey-step p {
+  margin: 0;
+  max-width: 46ch;
+}
+
+.journey[data-stage="1"] .journey-steps > li:nth-child(1),
+.journey[data-stage="2"] .journey-steps > li:nth-child(2),
+.journey[data-stage="3"] .journey-steps > li:nth-child(3),
+.journey[data-stage="4"] .journey-steps > li:nth-child(4) {
+  border-top-color: var(--emerald);
+}
+.journey[data-stage="1"] .journey-steps > li:nth-child(1) .journey-n,
+.journey[data-stage="2"] .journey-steps > li:nth-child(2) .journey-n,
+.journey[data-stage="3"] .journey-steps > li:nth-child(3) .journey-n,
+.journey[data-stage="4"] .journey-steps > li:nth-child(4) .journey-n {
+  color: var(--emerald);
+}
+
+@media (min-width: 961px) {
+  .journey {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.04fr);
+    column-gap: var(--space-7);
   }
-  .hero-visual {
-    aspect-ratio: 1 / 0.68;
-    max-width: 520px;
-    margin-top: calc(-1 * var(--space-5));
+  .journey-lead {
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 74vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: var(--space-7) 0;
+  }
+  .journey-steps {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  /* Spans both rows, so it can stay pinned for the whole story, and sits in the
+     middle of the viewport so the step it illustrates is level with it. */
+  .journey-stage {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    align-self: start;
+    height: min(74vh, 640px);
+    top: calc((100vh - min(74vh, 640px)) / 2);
+    margin-bottom: 0;
+    /* Side by side here, so it needs neither the panel edge nor the z-index. */
+    border-bottom: 0;
+    z-index: auto;
+  }
+  .journey-step {
+    min-height: 58vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: var(--space-6) 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .journey-step,
+  .journey-n {
+    transition: none;
   }
 }
 
@@ -85,40 +197,7 @@
 }
 .band h2 {
   max-width: 22ch;
-}
-
-.steps {
-  list-style: none;
-  padding: 0;
-  margin: var(--space-6) 0 0;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-5);
-  counter-reset: step;
-}
-.steps li {
-  counter-increment: step;
-  border-top: 3px solid var(--emerald);
-  padding-top: var(--space-4);
-}
-.steps li::before {
-  content: counter(step);
-  font-family: var(--font-display);
-  font-weight: 800;
-  font-size: var(--t-2xl);
-  color: var(--emerald);
-  display: block;
-  margin-bottom: var(--space-2);
-}
-@media (max-width: 860px) {
-  .steps {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-@media (max-width: 520px) {
-  .steps {
-    grid-template-columns: 1fr;
-  }
+  letter-spacing: -0.025em;
 }
 
 .demo {
@@ -174,6 +253,7 @@
 }
 .queue-board strong {
   color: #fff;
+  font-variant-numeric: tabular-nums;
 }
 
 .site-footer {

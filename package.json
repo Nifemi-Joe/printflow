@@ -20,6 +20,8 @@
     "dev:api": "tsx watch --tsconfig apps/api/tsconfig.json --env-file=.env.staging apps/api/src/main.ts",
     "dev:worker": "pnpm --filter @printflow/worker dev",
     "dev:web": "pnpm --filter @printflow/web dev",
+    "build:api": "pnpm --filter @printflow/api build",
+    "start:api": "pnpm --filter @printflow/api start",
     "build": "pnpm -r --filter ./apps/* build",
     "openapi": "pnpm --filter @printflow/api openapi",
     "check": "pnpm lint && pnpm typecheck && pnpm test:all"

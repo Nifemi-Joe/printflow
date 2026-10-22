@@ -6,7 +6,7 @@
 
 FROM node:22-bookworm-slim AS build
 ARG API_ORIGIN=http://api:4000
-ARG NEXT_PUBLIC_ONBOARDING_EMAIL=
+ARG NEXT_PUBLIC_ONBOARDING_EMAIL=ifemi.joseph@globalsjxltd.com
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=1 NEXT_TELEMETRY_DISABLED=1 \
     API_ORIGIN=$API_ORIGIN NEXT_PUBLIC_ONBOARDING_EMAIL=$NEXT_PUBLIC_ONBOARDING_EMAIL
 RUN corepack enable && corepack prepare pnpm@10.28.0 --activate
