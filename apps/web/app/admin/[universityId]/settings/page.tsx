@@ -15,7 +15,7 @@ export default function UniSettings() {
       documentRetentionDays: number;
       studentProvidersAllowed: boolean;
       studentEmailDomains: string[];
-      matricPatterxn: string | null;
+      matricPattern: string | null;
       studentProviderCapKobo: number;
       providerReverifyDays: number;
     };
