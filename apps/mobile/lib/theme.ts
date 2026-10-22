@@ -12,6 +12,10 @@ export const C = {
   amberWash: "#fdf1dc",
   red: "#b42318",
   redWash: "#fdecea",
+  /** The mark's own field: the splash and the app icon stand on it. */
+  ink: "#000906",
+  onInk: "#ffffff",
+  onInkMuted: "rgba(255, 255, 255, 0.62)",
 };
 
 export const F = {
@@ -27,8 +31,8 @@ export function naira(kobo: number | string | null | undefined): string {
   const k = Math.round(Number(kobo ?? 0));
   const abs = Math.abs(k);
   const whole = Math.floor(abs / 100)
-    .toString()
-    .replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+      .toString()
+      .replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return `${k < 0 ? "-" : ""}₦${whole}.${String(abs % 100).padStart(2, "0")}`;
 }
 

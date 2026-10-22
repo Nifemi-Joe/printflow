@@ -20,7 +20,7 @@ test.describe("landing page", () => {
   test("loads the 3D printer when WebGL is available, and scrolling stays native", async ({ page }) => {
     const problems = watch(page);
     await page.goto("/");
-    await expect(page.locator(".hero-visual[data-mode='3d'] canvas")).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(".journey-stage[data-mode='3d'] canvas")).toBeVisible({ timeout: 15_000 });
     const before = await page.evaluate(() => window.scrollY);
     await page.mouse.wheel(0, 600);
     await page.waitForTimeout(400);
@@ -34,8 +34,8 @@ test.describe("landing page", () => {
     const page = await ctx.newPage();
     await page.goto("/");
     await page.waitForTimeout(3000);
-    await expect(page.locator(".hero-visual[data-mode='static'] svg")).toBeVisible();
-    await expect(page.locator(".hero-visual canvas")).toHaveCount(0);
+    await expect(page.locator(".journey-stage[data-mode='static'] svg")).toBeVisible();
+    await expect(page.locator(".journey-stage canvas")).toHaveCount(0);
     await page.screenshot({ path: `${SHOTS}/landing-reduced-motion-${info.project.name}.png` });
     await ctx.close();
   });
@@ -52,8 +52,30 @@ test.describe("landing page", () => {
     const page = await ctx.newPage();
     await page.goto("/");
     await page.waitForTimeout(3000);
-    await expect(page.locator(".hero-visual[data-mode='static'] svg")).toBeVisible();
+    await expect(page.locator(".journey-stage[data-mode='static'] svg")).toBeVisible();
     await ctx.close();
+  });
+
+  test("scrolling walks the scene through its stages, and the steps keep up", async ({ page }) => {
+    const problems = watch(page);
+    await page.goto("/");
+    await expect(page.locator(".journey-stage[data-mode='3d'] canvas")).toBeVisible({ timeout: 15_000 });
+    const journey = page.locator(".journey");
+    await expect(journey).toHaveAttribute("data-stage", "0");
+
+    // Walk to the end of the pinned section the way a reader would.
+    await page.evaluate(() => {
+      const j = document.querySelector(".journey")!;
+      const stage = document.querySelector(".journey-stage") as HTMLElement;
+      const r = j.getBoundingClientRect();
+      window.scrollTo(0, window.scrollY + r.top - (parseFloat(getComputedStyle(stage).top) || 0) + (r.height - stage.offsetHeight));
+    });
+    await expect(journey).toHaveAttribute("data-stage", "4");
+    // The last step is the one marked, and every step is still fully legible.
+    const last = page.locator(".journey-steps > li").last();
+    await expect(last).toHaveCSS("border-top-color", "rgb(10, 122, 85)");
+    await expect(page.locator(".journey-steps > li").first()).toHaveCSS("opacity", "1");
+    expect(problems).toEqual([]);
   });
 
   test("the price demo updates and labels itself as an example", async ({ page }) => {

@@ -24,6 +24,8 @@ import { PlatformController } from "./modules/platform.js";
 import { ShopController } from "./modules/shop.js";
 import { StudentOrdersController } from "./modules/student-orders.js";
 import { UniversityAdminController } from "./modules/university.js";
+import { UniversityWalletController, WalletController } from "./modules/wallet.js";
+import { ProviderVerificationController, UniversityProvidersController } from "./modules/provider.js";
 
 export interface AppDeps {
   pool: pg.Pool;
@@ -92,6 +94,10 @@ export const CONTROLLERS = [
   ShopController,
   UniversityAdminController,
   PlatformController,
+  WalletController,
+  UniversityWalletController,
+  ProviderVerificationController,
+  UniversityProvidersController,
 ];
 
 @Module({})

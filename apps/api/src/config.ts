@@ -52,6 +52,23 @@ export const ConfigSchema = z
         TEST_WEBHOOK_SECRET: z.string().default("test-webhook-secret-not-for-production-use"),
         PAYMENT_WINDOW_MINUTES: z.coerce.number().int().min(5).max(1440).default(30),
 
+        /** Student wallet (spend-only balance). Amounts in kobo: 10000 = ₦100. */
+        WALLET_ENABLED: bool.default(true),
+        WALLET_MAX_BALANCE_KOBO: z.coerce.number().int().min(100_000).max(100_000_000).default(10_000_000),
+        WALLET_TOPUP_MIN_KOBO: z.coerce.number().int().min(10_000).max(50_000_000).default(10_000),
+        WALLET_TOPUP_MAX_KOBO: z.coerce.number().int().min(10_000).max(50_000_000).default(5_000_000),
+        /** A text is sent when a payment takes the balance below this. 0 turns it off. */
+        WALLET_LOW_BALANCE_KOBO: z.coerce.number().int().min(0).max(10_000_000).default(30_000),
+        /** Largest single print-credit grant a university admin can make. */
+        PROMO_GRANT_MAX_KOBO: z.coerce.number().int().min(100).max(10_000_000).default(1_000_000),
+
+        /**
+         * Key that surnames in an uploaded student roll are hashed with, so matric numbers
+         * can verify themselves without PrintFlow holding a copy of the student register.
+         * Only needed by universities that upload a roll. Changing it invalidates those rolls.
+         */
+        STUDENT_ROLL_PEPPER: secret(32).optional(),
+
         EMAIL_DRIVER: z.enum(["SMTP", "LOG", "CAPTURE", "NONE"]).default("LOG"),
         /** smtp://user:pass@host:587 (STARTTLS) or smtps://user:pass@host:465. */
         SMTP_URL: z.string().optional(),
@@ -78,6 +95,12 @@ export const ConfigSchema = z
         EMAIL_FROM: z.string().default("PrintFlow <no-reply@printflow.local>"),
     })
     .superRefine((c, ctx) => {
+        if (c.WALLET_TOPUP_MIN_KOBO > c.WALLET_TOPUP_MAX_KOBO) {
+            ctx.addIssue({ code: "custom", path: ["WALLET_TOPUP_MIN_KOBO"], message: "must not be more than WALLET_TOPUP_MAX_KOBO" });
+        }
+        if (c.WALLET_TOPUP_MAX_KOBO > c.WALLET_MAX_BALANCE_KOBO) {
+            ctx.addIssue({ code: "custom", path: ["WALLET_TOPUP_MAX_KOBO"], message: "must not be more than WALLET_MAX_BALANCE_KOBO" });
+        }
         if (c.STORAGE_DRIVER === "LOCAL" && (!c.STORAGE_SIGNING_SECRET || c.STORAGE_SIGNING_SECRET.length < 32)) {
             ctx.addIssue({ code: "custom", path: ["STORAGE_SIGNING_SECRET"], message: "required (32+ chars) for LOCAL storage" });
         }

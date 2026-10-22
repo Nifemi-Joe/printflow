@@ -7,7 +7,7 @@
 | Everything | `pnpm check` | both | lint + typecheck + all of the above |
 | Browser | `pnpm --filter @printflow/web exec playwright test` | the running stack (below) | landing page (3D, reduced motion, no WebGL, axe), every dashboard screen for every role, the complete order journey through the UI, at desktop 1366×900, tablet 820×1180 and mobile (Pixel 7) |
 | Load | `node apps/api/scripts/perf.mjs` | a running API with demo data, `RATE_LIMIT_SCALE` raised | latency percentiles and errors for shop discovery, order list, quote and price list under concurrent clients; fails over a p95 budget |
-| Mobile | `node apps/mobile/scripts/web-smoke.mjs` | the running stack and the Expo web export (below) | student and operator screens, MFA enrolment, offline drafts and reconciliation, QA, collection with right and wrong codes |
+| Mobile | `node apps/mobile/scripts/web-smoke.mjs` | the running stack and the Expo web export (below) | student and operator screens, MFA enrolment, the unverified-provider warning, offline drafts and reconciliation, QA, collection with right and wrong codes |
 
 ## Database tests
 
@@ -62,6 +62,9 @@ so start the API with its output going to the file named by `E2E_API_LOG`.
 Playwright's offline emulation does not apply to requests a service worker makes, so the
 worker's offline behaviour is unit-tested (`apps/web/test/sw.test.ts`) and the browser test
 checks that it installs, takes control and caches only page shells.
+
+The provider suite (`e2e/providers.spec.ts`) leaves the demo data as it found it, so it can
+be run repeatedly against the same database.
 
 Screenshots for every screen at every size are written to `docs/qa/screenshots/`.
 

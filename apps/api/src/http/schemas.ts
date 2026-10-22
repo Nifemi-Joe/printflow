@@ -10,6 +10,8 @@ const email = z
   .max(254)
   .regex(/^[^@\s]+@[^@\s]+\.[^@\s]+$/, "enter a valid email address");
 const kobo = z.number().int().min(0).max(100_000_000_00);
+/** Where card/transfer/USSD money goes on a refund: the student's wallet (instant) or back through the provider. */
+const refundTo = z.enum(["WALLET", "PROVIDER"]);
 const name = z.string().trim().min(2).max(200);
 
 const COMMON_PASSWORDS = new Set(["password123", "1234567890", "qwertyuiop", "printflow123", "password1234", "iloveyou123", "abcdefghij"]);
@@ -99,17 +101,72 @@ export const Schemas = {
     shopId: id,
     spec: PrintSpec,
   }),
-  CreateOrder: z.object({ quoteId: id, pickupLocationId: id, reprintOfOrderId: id.optional() }),
-  CancelOrder: z.object({ reason: z.string().trim().min(3).max(500).default("Cancelled by student") }),
+  CreateOrder: z.object({
+    quoteId: id,
+    pickupLocationId: id,
+    reprintOfOrderId: id.optional(),
+    /** Required when the shop is a student-run provider whose identity is not fully proven. */
+    acknowledgeUnverifiedProvider: z.boolean().default(false),
+  }),
+  CancelOrder: z.object({ reason: z.string().trim().min(3).max(500).default("Cancelled by student"), refundTo: refundTo.default("WALLET") }),
   OpenDispute: z.object({
     category: z.enum(["QUALITY", "NOT_RECEIVED", "WRONG_SPEC", "OVERCHARGED", "OTHER"]),
     description: z.string().trim().min(10).max(4000),
   }),
   CompleteTestPayment: z.object({ outcome: z.enum(["success", "failed"]), method: z.enum(["CARD", "BANK_TRANSFER", "USSD"]).optional() }),
-  StartPayment: z.object({ method: z.enum(["CARD", "BANK_TRANSFER", "USSD"]).optional() }).default({}),
+  StartPayment: z.object({ method: z.enum(["CARD", "BANK_TRANSFER", "USSD"]).optional(), useWallet: z.boolean().default(false) }).default({ useWallet: false }),
+  WalletTopup: z.object({ amountKobo: z.number().int().min(100).max(100_000_000), method: z.enum(["CARD", "BANK_TRANSFER", "USSD"]).optional() }),
+  WalletStatementQuery: z.object({ limit: z.coerce.number().int().min(1).max(100).default(30), before: z.coerce.number().int().min(1).optional() }),
+  PromoCredit: z
+    .object({
+      email: z.string().trim().toLowerCase().email().max(254).optional(),
+      matricNumber: z.string().trim().min(3).max(40).optional(),
+      amountKobo: z.number().int().min(100).max(10_000_000),
+      note: z.string().trim().min(3).max(300),
+    })
+    .refine((v) => Boolean(v.email) !== Boolean(v.matricNumber), { message: "give the student's email or matric number (one of them)", path: ["email"] }),
   PrivacyRequest: z.object({ kind: z.enum(["EXPORT", "ERASURE"]) }),
 
-  ApplyShop: z.object({ universityId: id, campusId: id, name: z.string().trim().min(2).max(120), locationNote: z.string().trim().max(500).optional() }),
+  ApplyShop: z.object({
+    universityId: id,
+    campusId: id,
+    name: z.string().trim().min(2).max(120),
+    locationNote: z.string().trim().max(500).optional(),
+    /** STUDENT_RUN is a student printing for others; it needs identity verification. */
+    kind: z.enum(["BUSINESS", "STUDENT_RUN"]).default("BUSINESS"),
+  }),
+
+  // ---------------------------------------------------------------- provider verification
+  AcceptUndertaking: z.object({ version: z.number().int().min(1).max(1000), agree: z.literal(true) }),
+  ProviderEmail: z.object({ email: z.string().trim().toLowerCase().email().max(254) }),
+  ProviderMatric: z.object({ matricNumber: z.string().trim().min(3).max(40) }),
+  ProviderListQuery: z.object({ waiting: z.coerce.boolean().optional() }),
+  DecideProviderCheck: z
+    .object({
+      check: z.enum(["STUDENT_EMAIL", "MATRIC_NUMBER", "UNIVERSITY_REVIEW"]),
+      decision: z.enum(["PASS", "REJECT"]),
+      /** What was confirmed, when there is no pending request to take it from. */
+      subject: z.string().trim().min(1).max(200).optional(),
+      /** How the identity was confirmed, for the record. */
+      confirmedWith: z.enum(["STUDENT_RECORDS", "ID_CARD_IN_PERSON", "DEPARTMENT_CONFIRMED", "OTHER"]).default("STUDENT_RECORDS"),
+      note: z.string().trim().min(3).max(1000),
+    })
+    .refine((v) => v.decision === "REJECT" || v.check !== "UNIVERSITY_REVIEW" || Boolean(v.subject), {
+      message: "name the person you met",
+      path: ["subject"],
+    }),
+  RevokeProviderCheck: z.object({
+    check: z.enum(["STUDENT_EMAIL", "MATRIC_NUMBER", "UNIVERSITY_REVIEW"]).default("UNIVERSITY_REVIEW"),
+    /** Also stop the shop trading, for a provider who should not continue. */
+    suspend: z.boolean().default(false),
+    reason: z.string().trim().min(3).max(1000),
+  }),
+  StudentRoll: z.object({
+    rows: z
+      .array(z.object({ matricNumber: z.string().trim().min(3).max(40), surname: z.string().trim().min(2).max(100) }))
+      .min(1)
+      .max(50_000),
+  }),
   OpeningHours,
   UpdateShop: z.object({
     acceptingOrders: z.boolean().optional(),
@@ -202,16 +259,26 @@ export const Schemas = {
     pricingMode: z.enum(PRICING_MODES).optional(),
     quoteTtlSeconds: z.number().int().min(60).max(86_400).optional(),
     documentRetentionDays: z.number().int().min(1).max(365).optional(),
+    /** Print credit each new student gets once they confirm their phone number. */
+    welcomeCreditKobo: z.number().int().min(0).max(500_000).optional(),
+    /** Whether students with their own printers may register as providers. */
+    studentProvidersAllowed: z.boolean().optional(),
+    studentEmailDomains: z.array(z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/, "that is not a domain")).max(20).optional(),
+    matricPattern: z.string().trim().min(3).max(200).nullable().optional(),
+    studentProviderCapKobo: z.number().int().min(10_000).max(100_000_000).optional(),
+    providerReverifyDays: z.number().int().min(30).max(1095).optional(),
   }),
   Campus: z.object({ name }),
   UpdateCampus: z.object({ name: name.optional(), isActive: z.boolean().optional() }),
   Department: z.object({ name }),
   ShopStatusAction: z.object({ action: z.enum(["approve", "suspend", "reinstate", "remove"]), reason: z.string().trim().min(3).max(500) }),
-  AdminRefund: z.object({ reason: z.string().trim().min(3).max(1000) }),
+  AdminRefund: z.object({ reason: z.string().trim().min(3).max(1000), refundTo: refundTo.default("WALLET") }),
+  RetryRefund: z.object({ reason: z.string().trim().min(3).max(1000), refundTo: refundTo.default("PROVIDER") }),
   ResolveDispute: z.object({
     status: z.enum(["UNDER_REVIEW", "RESOLVED_REFUND", "RESOLVED_REPRINT", "RESOLVED_NO_ACTION"]),
     note: z.string().trim().min(3).max(4000),
     refundKobo: kobo.min(1).optional(),
+    refundTo: refundTo.default("WALLET"),
   }),
   UniversityStaff: z.object({ email, role: z.enum(["UNIVERSITY_ADMIN", "UNIVERSITY_FINANCE", "UNIVERSITY_SUPPORT"]) }),
   HandlePrivacy: z.object({ status: z.enum(["IN_PROGRESS", "COMPLETED", "REJECTED"]), note: z.string().trim().max(2000).optional() }),

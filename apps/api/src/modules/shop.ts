@@ -54,11 +54,13 @@ export class ShopController {
         input.universityId,
       ]);
       if (!campus.rowCount) throw Errors.rule("choose a campus of this university", "INVALID_CAMPUS");
-      const s = await c.query<{ id: string }>(`INSERT INTO shops (university_id, campus_id, name, location_note) VALUES ($1, $2, $3, $4) RETURNING id`, [
+      // A student-run shop is refused by the database unless the university takes them.
+      const s = await c.query<{ id: string }>(`INSERT INTO shops (university_id, campus_id, name, location_note, kind) VALUES ($1, $2, $3, $4, $5) RETURNING id`, [
         input.universityId,
         input.campusId,
         input.name,
         input.locationNote ?? null,
+        input.kind,
       ]);
       const shopId = s.rows[0]!.id;
       await c.query(`INSERT INTO shop_memberships (user_id, shop_id, university_id, role, permissions) VALUES ($1, $2, $3, 'OWNER', $4)`, [
@@ -67,8 +69,8 @@ export class ShopController {
         input.universityId,
         ROLE_DEFAULT_PERMISSIONS.OWNER,
       ]);
-      await audit(c, { universityId: input.universityId, shopId, actorUserId: a.userId, actorKind: "SHOP_STAFF", action: "shop.applied", entityType: "shop", entityId: shopId, requestId: req.id });
-      return { id: shopId, status: "PENDING_APPROVAL" };
+      await audit(c, { universityId: input.universityId, shopId, actorUserId: a.userId, actorKind: "SHOP_STAFF", action: "shop.applied", entityType: "shop", entityId: shopId, requestId: req.id, details: { kind: input.kind } });
+      return { id: shopId, status: "PENDING_APPROVAL", kind: input.kind, verificationLevel: "UNVERIFIED" };
     });
   }
 
@@ -637,6 +639,8 @@ export class ShopController {
        SELECT d.day::date AS day,
               COALESCE((SELECT sum(p.amount_kobo) FROM payments p JOIN orders o ON o.id = p.order_id
                          WHERE o.shop_id = $1 AND p.status = 'SUCCEEDED' AND date_trunc('day', p.confirmed_at) = d.day), 0)::bigint AS "paymentsKobo",
+              COALESCE((SELECT -sum(e.cash_kobo + e.promo_kobo) FROM wallet_entries e JOIN orders o ON o.id = e.order_id
+                         WHERE o.shop_id = $1 AND e.kind IN ('ORDER_PAYMENT', 'ORDER_RETURN') AND date_trunc('day', e.created_at) = d.day), 0)::bigint AS "walletKobo",
               COALESCE((SELECT sum(r.amount_kobo) FROM refunds r JOIN orders o ON o.id = r.order_id
                          WHERE o.shop_id = $1 AND r.status = 'SUCCEEDED' AND date_trunc('day', r.completed_at) = d.day), 0)::bigint AS "refundsKobo",
               COALESCE((SELECT sum(q.subtotal_kobo) FROM orders o JOIN quotes q ON q.id = o.quote_id
@@ -650,6 +654,6 @@ export class ShopController {
         WHERE e.processing_error IS NOT NULL AND e.signature_valid AND e.received_at >= $1 AND e.received_at < $2 ORDER BY e.id DESC LIMIT 20`,
       range,
     );
-    return { range: { from: range[0], to: range[1] }, days: rows.map((r) => ({ ...r, paymentsKobo: Number(r.paymentsKobo), refundsKobo: Number(r.refundsKobo), collectedRevenueKobo: Number(r.collectedRevenueKobo) })), unmatchedProviderEvents: unmatched.rows };
+    return { range: { from: range[0], to: range[1] }, days: rows.map((r) => ({ ...r, paymentsKobo: Number(r.paymentsKobo), walletKobo: Number(r.walletKobo), refundsKobo: Number(r.refundsKobo), collectedRevenueKobo: Number(r.collectedRevenueKobo) })), unmatchedProviderEvents: unmatched.rows };
   }
 }

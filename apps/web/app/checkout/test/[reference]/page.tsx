@@ -18,6 +18,7 @@ interface TestPayment {
   shopName: string;
   status: string;
   requestedMethod: Method | null;
+  kind: "ORDER" | "TOPUP";
   simulated: {
     bankTransfer: { bank: string; accountNumber: string; accountName: string; note: string };
     ussd: { code: string; note: string };
@@ -43,8 +44,8 @@ function Checkout() {
   const complete = async (outcome: "success" | "failed") => {
     setBusy(true);
     try {
-      const r = await api<{ orderId: string }>(`/test-payments/${reference}/complete`, { method: "POST", body: { outcome, method } });
-      router.replace(`/student/orders/${r.orderId}`);
+      const r = await api<{ returnTo: string }>(`/test-payments/${reference}/complete`, { method: "POST", body: { outcome, method } });
+      router.replace(r.returnTo);
     } catch (e) {
       setActionError(e);
       setBusy(false);
@@ -52,105 +53,105 @@ function Checkout() {
   };
 
   return (
-    <AuthFrame title="Test payment">
-      <div className="notice notice-warn">
-        <p>This is a simulated checkout for testing. No money moves, and the account number and USSD code below are not real.</p>
-      </div>
-      <ErrorNotice error={error ?? actionError} />
-      {loading ? (
-        <Skeleton />
-      ) : (
-        data && (
-          <>
-            <div className="ticket" style={{ marginBottom: "1.5rem" }}>
-              <div className="ticket-line">
-                <span>Order</span>
-                <span className="num">{data.orderReference}</span>
-              </div>
-              <div className="ticket-line">
-                <span>Shop</span>
-                <span>{data.shopName}</span>
-              </div>
-              <div className="ticket-total">
-                <span>Amount</span>
-                <span className="num">{naira(data.amountKobo)}</span>
-              </div>
-            </div>
-
-            {!locked && (
-              <div className="choice-row" role="radiogroup" aria-label="Payment method" style={{ marginBottom: "1rem" }}>
-                {(["CARD", "BANK_TRANSFER", "USSD"] as const).map((m) => (
-                  <label className="choice" key={m}>
-                    <input type="radio" name="m" checked={method === m} onChange={() => setPicked(m)} />
-                    <span>{METHOD_LABEL[m]}</span>
-                  </label>
-                ))}
-              </div>
-            )}
-
-            <section className="sheet" aria-labelledby="how-title" style={{ marginBottom: "1.5rem" }}>
-              <h2 id="how-title" style={{ fontSize: "var(--t-lg)" }}>
-                {METHOD_LABEL[method]}
-              </h2>
-              {method === "BANK_TRANSFER" && (
+      <AuthFrame title="Test payment">
+        <div className="notice notice-warn">
+          <p>This is a simulated checkout for testing. No money moves, and the account number and USSD code below are not real.</p>
+        </div>
+        <ErrorNotice error={error ?? actionError} />
+        {loading ? (
+            <Skeleton />
+        ) : (
+            data && (
                 <>
-                  <p>Transfer exactly {naira(data.amountKobo)} to:</p>
-                  <dl className="ticket" style={{ margin: 0 }}>
+                  <div className="ticket" style={{ marginBottom: "1.5rem" }}>
                     <div className="ticket-line">
-                      <dt>Bank</dt>
-                      <dd>{data.simulated.bankTransfer.bank}</dd>
+                      <span>{data.kind === "TOPUP" ? "For" : "Order"}</span>
+                      <span className="num">{data.orderReference}</span>
                     </div>
                     <div className="ticket-line">
-                      <dt>Account number</dt>
-                      <dd className="num">{data.simulated.bankTransfer.accountNumber}</dd>
+                      <span>{data.kind === "TOPUP" ? "Into" : "Shop"}</span>
+                      <span>{data.shopName}</span>
                     </div>
-                    <div className="ticket-line">
-                      <dt>Account name</dt>
-                      <dd>{data.simulated.bankTransfer.accountName}</dd>
+                    <div className="ticket-total">
+                      <span>Amount</span>
+                      <span className="num">{naira(data.amountKobo)}</span>
                     </div>
-                  </dl>
-                  <p className="muted" style={{ fontSize: "var(--t-sm)" }}>
-                    {data.simulated.bankTransfer.note}
-                  </p>
-                </>
-              )}
-              {method === "USSD" && (
-                <>
-                  <p>Dial this from the phone linked to your bank account:</p>
-                  <p className="num" style={{ fontSize: "var(--t-2xl)", fontWeight: 700 }}>
-                    {data.simulated.ussd.code}
-                  </p>
-                  <p className="muted" style={{ fontSize: "var(--t-sm)" }}>
-                    {data.simulated.ussd.note}
-                  </p>
-                </>
-              )}
-              {method === "CARD" && <p>In live mode you enter your card details on Paystack&apos;s secure page.</p>}
-            </section>
+                  </div>
 
-            {data.status === "INITIATED" ? (
-              <div className="row">
-                <button className="btn btn-primary" disabled={busy} onClick={() => complete("success")}>
-                  {method === "CARD" ? "Simulate successful payment" : method === "BANK_TRANSFER" ? "Simulate: I've sent the transfer" : "Simulate: USSD payment approved"}
-                </button>
-                <button className="btn btn-danger" disabled={busy} onClick={() => complete("failed")}>
-                  Simulate failed payment
-                </button>
-              </div>
-            ) : (
-              <p>This payment is already {data.status.toLowerCase()}.</p>
-            )}
-          </>
-        )
-      )}
-    </AuthFrame>
+                  {!locked && (
+                      <div className="choice-row" role="radiogroup" aria-label="Payment method" style={{ marginBottom: "1rem" }}>
+                        {(["CARD", "BANK_TRANSFER", "USSD"] as const).map((m) => (
+                            <label className="choice" key={m}>
+                              <input type="radio" name="m" checked={method === m} onChange={() => setPicked(m)} />
+                              <span>{METHOD_LABEL[m]}</span>
+                            </label>
+                        ))}
+                      </div>
+                  )}
+
+                  <section className="sheet" aria-labelledby="how-title" style={{ marginBottom: "1.5rem" }}>
+                    <h2 id="how-title" style={{ fontSize: "var(--t-lg)" }}>
+                      {METHOD_LABEL[method]}
+                    </h2>
+                    {method === "BANK_TRANSFER" && (
+                        <>
+                          <p>Transfer exactly {naira(data.amountKobo)} to:</p>
+                          <dl className="ticket" style={{ margin: 0 }}>
+                            <div className="ticket-line">
+                              <dt>Bank</dt>
+                              <dd>{data.simulated.bankTransfer.bank}</dd>
+                            </div>
+                            <div className="ticket-line">
+                              <dt>Account number</dt>
+                              <dd className="num">{data.simulated.bankTransfer.accountNumber}</dd>
+                            </div>
+                            <div className="ticket-line">
+                              <dt>Account name</dt>
+                              <dd>{data.simulated.bankTransfer.accountName}</dd>
+                            </div>
+                          </dl>
+                          <p className="muted" style={{ fontSize: "var(--t-sm)" }}>
+                            {data.simulated.bankTransfer.note}
+                          </p>
+                        </>
+                    )}
+                    {method === "USSD" && (
+                        <>
+                          <p>Dial this from the phone linked to your bank account:</p>
+                          <p className="num" style={{ fontSize: "var(--t-2xl)", fontWeight: 700 }}>
+                            {data.simulated.ussd.code}
+                          </p>
+                          <p className="muted" style={{ fontSize: "var(--t-sm)" }}>
+                            {data.simulated.ussd.note}
+                          </p>
+                        </>
+                    )}
+                    {method === "CARD" && <p>In live mode you enter your card details on Paystack&apos;s secure page.</p>}
+                  </section>
+
+                  {data.status === "INITIATED" ? (
+                      <div className="row">
+                        <button className="btn btn-primary" disabled={busy} onClick={() => complete("success")}>
+                          {method === "CARD" ? "Simulate successful payment" : method === "BANK_TRANSFER" ? "Simulate: I've sent the transfer" : "Simulate: USSD payment approved"}
+                        </button>
+                        <button className="btn btn-danger" disabled={busy} onClick={() => complete("failed")}>
+                          Simulate failed payment
+                        </button>
+                      </div>
+                  ) : (
+                      <p>This payment is already {data.status.toLowerCase()}.</p>
+                  )}
+                </>
+            )
+        )}
+      </AuthFrame>
   );
 }
 
 export default function TestCheckout() {
   return (
-    <Suspense>
-      <Checkout />
-    </Suspense>
+      <Suspense>
+        <Checkout />
+      </Suspense>
   );
 }

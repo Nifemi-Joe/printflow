@@ -10,7 +10,7 @@ import {
   otpMatches,
   type OtpPurpose,
 } from "../../../../packages/domain/src/index.js";
-import { withTransaction, type Queryable } from "../../../../packages/data/src/index.js";
+import { grantWelcomeCredit, withTransaction, type Queryable } from "../../../../packages/data/src/index.js";
 import type { AppConfig } from "../config.js";
 import { Access, audit } from "../http/access.js";
 import type { PfRequest } from "../http/context.js";
@@ -35,10 +35,10 @@ export interface CodeSent {
  */
 export class PhoneCodes {
   constructor(
-    private readonly pool: Pool,
-    private readonly cfg: AppConfig,
-    private readonly sms: SmsSender,
-    private readonly limiter: RateLimiter,
+      private readonly pool: Pool,
+      private readonly cfg: AppConfig,
+      private readonly sms: SmsSender,
+      private readonly limiter: RateLimiter,
   ) {}
 
   get available(): boolean {
@@ -59,8 +59,8 @@ export class PhoneCodes {
     const code = generateOtp();
     await db.query(`UPDATE phone_otps SET revoked_at = now() WHERE phone = $1 AND purpose = $2 AND consumed_at IS NULL AND revoked_at IS NULL`, [p.phone, p.purpose]);
     await db.query(
-      `INSERT INTO phone_otps (phone, user_id, purpose, code_hash, max_attempts, expires_at) VALUES ($1, $2, $3, $4, $5, now() + make_interval(secs => $6))`,
-      [p.phone, p.userId, p.purpose, hashOtp(this.cfg.SESSION_SECRET, p.phone, p.purpose, code), OTP_MAX_ATTEMPTS, OTP_TTL_MS / 1000],
+        `INSERT INTO phone_otps (phone, user_id, purpose, code_hash, max_attempts, expires_at) VALUES ($1, $2, $3, $4, $5, now() + make_interval(secs => $6))`,
+        [p.phone, p.userId, p.purpose, hashOtp(this.cfg.SESSION_SECRET, p.phone, p.purpose, code), OTP_MAX_ATTEMPTS, OTP_TTL_MS / 1000],
     );
     const what = p.purpose === "SIGN_IN" ? "sign-in" : "verification";
     await this.sms.send({ to: p.phone, text: `Your PrintFlow ${what} code is ${code}. It expires in 10 minutes. Never share it; PrintFlow will never ask you for it.` });
@@ -79,12 +79,12 @@ export class PhoneCodes {
   async consume(p: { phone: string; purpose: OtpPurpose; code: string; userId?: string }): Promise<string | null> {
     const outcome = await withTransaction(this.pool, async (c) => {
       const { rows } = await c.query<{ id: string; user_id: string | null; code_hash: string; attempts: number; max_attempts: number; expired: boolean }>(
-        `SELECT id, user_id, code_hash, attempts, max_attempts, expires_at <= now() AS expired
+          `SELECT id, user_id, code_hash, attempts, max_attempts, expires_at <= now() AS expired
            FROM phone_otps
-          WHERE phone = $1 AND purpose = $2 AND consumed_at IS NULL AND revoked_at IS NULL
-            AND ($3::uuid IS NULL OR user_id = $3)
-          ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,
-        [p.phone, p.purpose, p.userId ?? null],
+           WHERE phone = $1 AND purpose = $2 AND consumed_at IS NULL AND revoked_at IS NULL
+             AND ($3::uuid IS NULL OR user_id = $3)
+           ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,
+          [p.phone, p.purpose, p.userId ?? null],
       );
       const otp = rows[0];
       if (!otp || otp.expired) return { ok: false as const, reason: "EXPIRED" as const };
@@ -106,11 +106,11 @@ export class PhoneCodes {
 @Controller("v1/me/phone")
 export class PhoneController {
   constructor(
-    @Inject(PG_POOL) private readonly pool: Pool,
-    @Inject(CONFIG) private readonly cfg: AppConfig,
-    @Inject(Access) private readonly access: Access,
-    @Inject(RateLimiter) private readonly limiter: RateLimiter,
-    @Inject(SMS) private readonly sms: SmsSender,
+      @Inject(PG_POOL) private readonly pool: Pool,
+      @Inject(CONFIG) private readonly cfg: AppConfig,
+      @Inject(Access) private readonly access: Access,
+      @Inject(RateLimiter) private readonly limiter: RateLimiter,
+      @Inject(SMS) private readonly sms: SmsSender,
   ) {}
 
   private get codes() {
@@ -152,11 +152,13 @@ export class PhoneController {
     const phone = rows[0]?.phone;
     if (!phone) throw Errors.rule("add a phone number first", "NO_PHONE");
     await this.codes.consume({ phone, purpose: "VERIFY_PHONE", code, userId: a.userId });
-    await withTransaction(this.pool, async (c) => {
+    const welcomeCreditKobo = await withTransaction(this.pool, async (c) => {
       const r = await c.query(`UPDATE users SET phone_verified_at = now() WHERE id = $1 AND phone = $2`, [a.userId, phone]);
       if (!r.rowCount) throw Errors.conflict("your phone number changed; request a new code", "PHONE_CHANGED");
       await audit(c, { actorUserId: a.userId, actorKind: "STUDENT", action: "auth.phone_verified", entityType: "user", entityId: a.userId, requestId: req.id });
+      // A university's welcome credit is given once, on a confirmed phone (cheap emails cannot farm it).
+      return this.cfg.WALLET_ENABLED ? grantWelcomeCredit(c, a.userId) : 0;
     });
-    return { verified: true, phone };
+    return { verified: true, phone, welcomeCreditKobo };
   }
 }

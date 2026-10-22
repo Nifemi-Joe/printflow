@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { PaymentMethodPicker, type Method } from "@/components/PaymentMethods";
+import { TrustBadge, UnverifiedProviderNotice, type Trust } from "@/components/Trust";
 import { PowerBadge, type Power } from "@/components/Power";
 import { Empty, ErrorNotice, Field, PageHead, Skeleton } from "@/components/ui";
 import { api, ApiError, newIdempotencyKey } from "@/lib/api";
@@ -26,6 +27,7 @@ interface Shop {
   queue: { jobsAhead: number; estimatedMinutes: number | null; basis: string };
   devicesReported: Record<string, number>;
   power: Power | null;
+  trust: Trust;
 }
 interface PriceList {
   configured: boolean;
@@ -44,6 +46,7 @@ interface Quote {
   expiresAt: string;
   checkout: "LIVE" | "TEST" | "DISABLED";
   paymentMethods: Method[];
+  provider?: Trust & { needsAcknowledgement: boolean; orderCapKobo: number | null };
 }
 
 function Countdown({ until }: { until: string }) {
@@ -61,7 +64,13 @@ function Wizard() {
   const router = useRouter();
   const { me } = useSession();
   const docs = useData<{ items: Doc[] }>("/documents");
-  const shops = useData<{ items: Shop[] }>(me?.student ? `/universities/${me.student.universityId}/shops` : null);
+  const [showUnverified, setShowUnverified] = useState(false);
+  const shops = useData<{ items: Shop[]; hiddenUnverified: number }>(
+      me?.student ? `/universities/${me.student.universityId}/shops${showUnverified ? "?includeUnverified=true" : ""}` : null,
+  );
+  const walletData = useData<{ totalKobo: number }>(me?.student ? "/me/wallet" : null);
+  const [useWallet, setUseWallet] = useState(true);
+  const [agreedToProvider, setAgreedToProvider] = useState(false);
   const [versionId, setVersionId] = useState(params.get("document") ?? "");
   const [shopId, setShopId] = useState("");
   const prices = useData<PriceList>(shopId ? `/shops/${shopId}/price-list` : null);
@@ -83,12 +92,12 @@ function Wizard() {
   useEffect(() => {
     if (!reprintOf) return;
     api<{ spec: typeof spec & { documentPageCount: number }; shop: { id: string }; document: { versionId: string } }>(`/orders/${reprintOf}`)
-      .then((o) => {
-        setVersionId((v) => v || o.document.versionId);
-        setShopId(o.shop.id);
-        setSpec({ pageRanges: o.spec.pageRanges ?? "", copies: o.spec.copies, paperSize: o.spec.paperSize, colourMode: o.spec.colourMode, sides: o.spec.sides, finishingCodes: o.spec.finishingCodes ?? [] });
-      })
-      .catch(() => undefined);
+        .then((o) => {
+          setVersionId((v) => v || o.document.versionId);
+          setShopId(o.shop.id);
+          setSpec({ pageRanges: o.spec.pageRanges ?? "", copies: o.spec.copies, paperSize: o.spec.paperSize, colourMode: o.spec.colourMode, sides: o.spec.sides, finishingCodes: o.spec.finishingCodes ?? [] });
+        })
+        .catch(() => undefined);
   }, [reprintOf]);
 
   const offered = useMemo(() => {
@@ -134,14 +143,27 @@ function Wizard() {
     try {
       const order = await api<{ id: string }>("/orders", {
         method: "POST",
-        body: { quoteId: quote.id, pickupLocationId: pickup, ...(reprintOf ? { reprintOfOrderId: reprintOf } : {}) },
+        body: {
+          quoteId: quote.id,
+          pickupLocationId: pickup,
+          ...(reprintOf ? { reprintOfOrderId: reprintOf } : {}),
+          ...(quote.provider?.needsAcknowledgement ? { acknowledgeUnverifiedProvider: agreedToProvider } : {}),
+        },
         headers: { "Idempotency-Key": idemKey.current },
       });
-      if (quote.checkout === "DISABLED") {
+      const fromWallet = useWallet ? Math.min(walletData.data?.totalKobo ?? 0, quote.totalKobo) : 0;
+      if (quote.checkout === "DISABLED" && fromWallet < quote.totalKobo) {
         router.push(`/student/orders/${order.id}`);
         return;
       }
-      const pay = await api<{ checkoutUrl: string }>(`/orders/${order.id}/payments`, { method: "POST", body: { method } });
+      const pay = await api<{ paidFromWallet: boolean; checkoutUrl?: string }>(`/orders/${order.id}/payments`, {
+        method: "POST",
+        body: { useWallet: fromWallet > 0, ...(fromWallet < quote.totalKobo ? { method } : {}) },
+      });
+      if (pay.paidFromWallet || !pay.checkoutUrl) {
+        router.push(`/student/orders/${order.id}`);
+        return;
+      }
       const u = new URL(pay.checkoutUrl, window.location.origin);
       if (u.origin === window.location.origin) router.push(`${u.pathname}${u.search}`);
       else window.location.assign(pay.checkoutUrl);
@@ -154,199 +176,227 @@ function Wizard() {
   if (docs.loading || shops.loading) return <Skeleton lines={6} />;
   if (ready.length === 0)
     return (
-      <Empty title="Nothing ready to print" action={<Link className="btn btn-primary" href="/student/documents">Upload a document</Link>}>
-        Upload a PDF or Word file first. It is ready to print once it has been checked.
-      </Empty>
+        <Empty title="Nothing ready to print" action={<Link className="btn btn-primary" href="/student/documents">Upload a document</Link>}>
+          Upload a PDF or Word file first. It is ready to print once it has been checked.
+        </Empty>
     );
 
   return (
-    <div className="grid-2" style={{ alignItems: "start" }}>
-      <div className="sheet">
-        <ErrorNotice error={error} />
-        <Field id="doc" label="Document">
-          <select id="doc" value={versionId} onChange={(e) => setVersionId(e.target.value)}>
-            <option value="">Choose a document</option>
-            {ready.map((d) => (
-              <option key={d.latestVersion.id} value={d.latestVersion.id}>
-                {d.title} ({d.latestVersion.pageCount} pages)
-              </option>
-            ))}
-          </select>
-        </Field>
+      <div className="grid-2" style={{ alignItems: "start" }}>
+        <div className="sheet">
+          <ErrorNotice error={error} />
+          <Field id="doc" label="Document">
+            <select id="doc" value={versionId} onChange={(e) => setVersionId(e.target.value)}>
+              <option value="">Choose a document</option>
+              {ready.map((d) => (
+                  <option key={d.latestVersion.id} value={d.latestVersion.id}>
+                    {d.title} ({d.latestVersion.pageCount} pages)
+                  </option>
+              ))}
+            </select>
+          </Field>
 
-        <fieldset>
-          <legend>Shop</legend>
-          {shops.data?.items.length === 0 && <p className="muted">No print shops are open at your university yet.</p>}
-          <div className="stack">
-            {shops.data?.items.map((s) => (
-              <label key={s.id} className="choice" style={{ display: "block" }}>
-                <input type="radio" name="shop" checked={shopId === s.id} disabled={!s.acceptingOrders} onChange={() => setShopId(s.id)} />
-                <span style={{ display: "block", padding: "0.75rem 1rem", minHeight: 0 }}>
+          <fieldset>
+            <legend>Shop</legend>
+            {shops.data?.items.length === 0 && <p className="muted">No print shops are open at your university yet.</p>}
+            <div className="stack">
+              {shops.data?.items.map((s) => (
+                  <label key={s.id} className="choice" style={{ display: "block" }}>
+                    <input type="radio" name="shop" checked={shopId === s.id} disabled={!s.acceptingOrders} onChange={() => setShopId(s.id)} />
+                    <span style={{ display: "block", padding: "0.75rem 1rem", minHeight: 0 }}>
                   <strong>{s.name}</strong> <span className="muted">{s.campus.name}</span>
                   <br />
                   <span className="muted" style={{ fontWeight: 400 }}>
                     {!s.acceptingOrders
-                      ? "Not taking orders right now"
-                      : s.queue.jobsAhead === 0
-                        ? "No queue"
-                        : `${s.queue.jobsAhead} job${s.queue.jobsAhead === 1 ? "" : "s"} ahead${s.queue.estimatedMinutes ? `, about ${s.queue.estimatedMinutes} min` : ""}`}
+                        ? "Not taking orders right now"
+                        : s.queue.jobsAhead === 0
+                            ? "No queue"
+                            : `${s.queue.jobsAhead} job${s.queue.jobsAhead === 1 ? "" : "s"} ahead${s.queue.estimatedMinutes ? `, about ${s.queue.estimatedMinutes} min` : ""}`}
                     {s.locationNote ? `. ${s.locationNote}` : ""}
                   </span>
-                  {s.power && s.power.status !== "UNKNOWN" && (
-                    <>
-                      <br />
-                      <PowerBadge power={s.power} />
-                    </>
-                  )}
+                  <br />
+                  <TrustBadge trust={s.trust} />
+                      {s.power && s.power.status !== "UNKNOWN" && (
+                          <>
+                            {" "}
+                            <PowerBadge power={s.power} />
+                          </>
+                      )}
                 </span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
+                  </label>
+              ))}
+            </div>
+            {(shops.data?.hiddenUnverified ?? 0) > 0 && !showUnverified && (
+                <p className="muted" style={{ fontSize: "var(--t-sm)" }}>
+                  {shops.data!.hiddenUnverified} student{shops.data!.hiddenUnverified === 1 ? " has" : "s have"} a printer but no confirmed identity yet.{" "}
+                  <button type="button" className="btn btn-quiet btn-small" onClick={() => setShowUnverified(true)}>
+                    Show them anyway
+                  </button>
+                </p>
+            )}
+          </fieldset>
 
-        {shopId && prices.data && !prices.data.configured && <div className="notice notice-warn"><p>{prices.data.message}</p></div>}
+          {shopId && prices.data && !prices.data.configured && <div className="notice notice-warn"><p>{prices.data.message}</p></div>}
 
-        {shopId && prices.data?.configured && (
-          <>
-            <Field id="ranges" label="Pages to print" hint={`Leave empty for all ${doc?.latestVersion.pageCount ?? ""} pages, or enter ranges like 1-5, 8`} error={fieldErrors["spec.pageRanges"]}>
-              <input id="ranges" value={spec.pageRanges} placeholder="All pages" onChange={(e) => setSpec({ ...spec, pageRanges: e.target.value })} />
-            </Field>
-            <Field id="copies" label="Copies" error={fieldErrors["spec.copies"]}>
-              <input id="copies" type="number" min={1} max={500} value={spec.copies} onChange={(e) => setSpec({ ...spec, copies: Math.max(1, Number(e.target.value) || 1) })} />
-            </Field>
-            <fieldset>
-              <legend>Paper size</legend>
-              <div className="choice-row">
-                {offered.sizes.map((v) => (
-                  <label className="choice" key={v}>
-                    <input type="radio" name="size" checked={spec.paperSize === v} onChange={() => setSpec({ ...spec, paperSize: v })} />
-                    <span>{v}</span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <fieldset>
-              <legend>Colour</legend>
-              <div className="choice-row">
-                {offered.colours.map((v) => (
-                  <label className="choice" key={v}>
-                    <input type="radio" name="colour" checked={spec.colourMode === v} onChange={() => setSpec({ ...spec, colourMode: v })} />
-                    <span>{v === "BW" ? "Black & white" : "Colour"}</span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <fieldset>
-              <legend>Sides</legend>
-              <div className="choice-row">
-                {offered.sides.map((v) => (
-                  <label className="choice" key={v}>
-                    <input type="radio" name="sides" checked={spec.sides === v} onChange={() => setSpec({ ...spec, sides: v })} />
-                    <span>{v === "SINGLE" ? "Single-sided" : "Double-sided"}</span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            {offered.finishing.length > 0 && (
-              <fieldset>
-                <legend>Finishing</legend>
-                {offered.finishing.map((f) => (
-                  <label key={f.code} className="row" style={{ marginBottom: "0.5rem" }}>
-                    <input
-                      type="checkbox"
-                      checked={spec.finishingCodes.includes(f.code)}
-                      onChange={(e) => setSpec({ ...spec, finishingCodes: e.target.checked ? [...spec.finishingCodes, f.code] : spec.finishingCodes.filter((c) => c !== f.code) })}
-                    />
-                    {f.name}{" "}
-                    <span className="muted">
+          {shopId && prices.data?.configured && (
+              <>
+                <Field id="ranges" label="Pages to print" hint={`Leave empty for all ${doc?.latestVersion.pageCount ?? ""} pages, or enter ranges like 1-5, 8`} error={fieldErrors["spec.pageRanges"]}>
+                  <input id="ranges" value={spec.pageRanges} placeholder="All pages" onChange={(e) => setSpec({ ...spec, pageRanges: e.target.value })} />
+                </Field>
+                <Field id="copies" label="Copies" error={fieldErrors["spec.copies"]}>
+                  <input id="copies" type="number" min={1} max={500} value={spec.copies} onChange={(e) => setSpec({ ...spec, copies: Math.max(1, Number(e.target.value) || 1) })} />
+                </Field>
+                <fieldset>
+                  <legend>Paper size</legend>
+                  <div className="choice-row">
+                    {offered.sizes.map((v) => (
+                        <label className="choice" key={v}>
+                          <input type="radio" name="size" checked={spec.paperSize === v} onChange={() => setSpec({ ...spec, paperSize: v })} />
+                          <span>{v}</span>
+                        </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <fieldset>
+                  <legend>Colour</legend>
+                  <div className="choice-row">
+                    {offered.colours.map((v) => (
+                        <label className="choice" key={v}>
+                          <input type="radio" name="colour" checked={spec.colourMode === v} onChange={() => setSpec({ ...spec, colourMode: v })} />
+                          <span>{v === "BW" ? "Black & white" : "Colour"}</span>
+                        </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <fieldset>
+                  <legend>Sides</legend>
+                  <div className="choice-row">
+                    {offered.sides.map((v) => (
+                        <label className="choice" key={v}>
+                          <input type="radio" name="sides" checked={spec.sides === v} onChange={() => setSpec({ ...spec, sides: v })} />
+                          <span>{v === "SINGLE" ? "Single-sided" : "Double-sided"}</span>
+                        </label>
+                    ))}
+                  </div>
+                </fieldset>
+                {offered.finishing.length > 0 && (
+                    <fieldset>
+                      <legend>Finishing</legend>
+                      {offered.finishing.map((f) => (
+                          <label key={f.code} className="row" style={{ marginBottom: "0.5rem" }}>
+                            <input
+                                type="checkbox"
+                                checked={spec.finishingCodes.includes(f.code)}
+                                onChange={(e) => setSpec({ ...spec, finishingCodes: e.target.checked ? [...spec.finishingCodes, f.code] : spec.finishingCodes.filter((c) => c !== f.code) })}
+                            />
+                            {f.name}{" "}
+                            <span className="muted">
                       {naira(f.price)} {f.unit === "PER_COPY" ? "per copy" : f.unit === "PER_SHEET" ? "per sheet" : "per order"}
                     </span>
-                  </label>
-                ))}
-              </fieldset>
-            )}
-            <button className="btn btn-primary" disabled={!versionId || busy} onClick={getQuote}>
-              {busy && !quote ? "Calculating…" : "Get exact price"}
-            </button>
-          </>
-        )}
-      </div>
+                          </label>
+                      ))}
+                    </fieldset>
+                )}
+                <button className="btn btn-primary" disabled={!versionId || busy} onClick={getQuote}>
+                  {busy && !quote ? "Calculating…" : "Get exact price"}
+                </button>
+              </>
+          )}
+        </div>
 
-      <div>
-        {quote ? (
-          <div className="ticket" aria-live="polite">
-            <h2 style={{ fontSize: "var(--t-xl)" }}>Your price</h2>
-            {quote.lines.map((l) => (
-              <div className="ticket-line" key={l.code}>
+        <div>
+          {quote ? (
+              <div className="ticket" aria-live="polite">
+                <h2 style={{ fontSize: "var(--t-xl)" }}>Your price</h2>
+                {quote.lines.map((l) => (
+                    <div className="ticket-line" key={l.code}>
                 <span>
                   {l.description}
                   {l.quantity > 1 ? ` × ${l.quantity}` : ""}
                 </span>
-                <span className="num">{naira(l.amount)}</span>
-              </div>
-            ))}
-            <div className="ticket-line">
-              <span>Service fee</span>
-              <span className="num">{naira(quote.serviceFeeKobo)}</span>
-            </div>
-            <div className="ticket-total">
-              <span>Total</span>
-              <span className="num">{naira(quote.totalKobo)}</span>
-            </div>
-            <p className="muted" style={{ marginTop: "0.75rem", fontSize: "var(--t-sm)" }}>
-              <Countdown until={quote.expiresAt} />
-            </p>
-            {shop && (
-              <Field id="pickup" label="Collect from">
-                <select id="pickup" value={pickup} onChange={(e) => setPickup(e.target.value)}>
-                  {shop.pickupLocations.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            )}
-            {quote.checkout === "DISABLED" && (
-              <div className="notice notice-warn">
-                <p>Online payment is not switched on for this installation yet, so orders cannot be paid at the moment.</p>
-              </div>
-            )}
-            {shop?.power?.status === "OUTAGE" && (
-              <div className="notice notice-warn">
-                <p>
-                  {shop.name} has reported no power{shop.power.backAt && !shop.power.overdue ? "" : " right now"}. You can still order; printing starts when power is back.
+                      <span className="num">{naira(l.amount)}</span>
+                    </div>
+                ))}
+                <div className="ticket-line">
+                  <span>Service fee</span>
+                  <span className="num">{naira(quote.serviceFeeKobo)}</span>
+                </div>
+                <div className="ticket-total">
+                  <span>Total</span>
+                  <span className="num">{naira(quote.totalKobo)}</span>
+                </div>
+                <p className="muted" style={{ marginTop: "0.75rem", fontSize: "var(--t-sm)" }}>
+                  <Countdown until={quote.expiresAt} />
                 </p>
+                {shop && (
+                    <Field id="pickup" label="Collect from">
+                      <select id="pickup" value={pickup} onChange={(e) => setPickup(e.target.value)}>
+                        {shop.pickupLocations.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                        ))}
+                      </select>
+                    </Field>
+                )}
+                {quote.checkout === "DISABLED" && (
+                    <div className="notice notice-warn">
+                      <p>Online payment is not switched on for this installation yet, so orders cannot be paid at the moment.</p>
+                    </div>
+                )}
+                {shop?.power?.status === "OUTAGE" && (
+                    <div className="notice notice-warn">
+                      <p>
+                        {shop.name} has reported no power{shop.power.backAt && !shop.power.overdue ? "" : " right now"}. You can still order; printing starts when power is back.
+                      </p>
+                    </div>
+                )}
+                {shop && (
+                    <UnverifiedProviderNotice trust={shop.trust} shopName={shop.name} agreed={agreedToProvider} onAgree={setAgreedToProvider} />
+                )}
+                {(walletData.data?.totalKobo ?? 0) > 0 && (
+                    <label className="choice" style={{ display: "block", margin: "var(--space-3) 0" }}>
+                      <input type="checkbox" checked={useWallet} onChange={(e) => setUseWallet(e.target.checked)} />
+                      <span style={{ padding: "var(--space-3) var(--space-4)" }}>
+                  Use my wallet ({naira(walletData.data!.totalKobo)})
+                        {useWallet && walletData.data!.totalKobo < quote.totalKobo ? `, then pay ${naira(quote.totalKobo - walletData.data!.totalKobo)}` : ""}
+                </span>
+                    </label>
+                )}
+                {quote.checkout !== "DISABLED" && !(useWallet && (walletData.data?.totalKobo ?? 0) >= quote.totalKobo) && (
+                    <PaymentMethodPicker methods={quote.paymentMethods} value={method} onChange={setMethod} />
+                )}
+                {quote.checkout === "TEST" && (
+                    <div className="notice notice-warn">
+                      <p>Test mode: payment is simulated and no money moves.</p>
+                    </div>
+                )}
+                <button className="btn btn-primary" style={{ width: "100%" }} disabled={busy || !pickup || new Date(quote.expiresAt) < new Date() || (Boolean(quote.provider?.needsAcknowledgement) && !agreedToProvider)} onClick={confirmAndPay}>
+                  {busy
+                      ? "Placing order…"
+                      : useWallet && (walletData.data?.totalKobo ?? 0) >= quote.totalKobo
+                          ? `Confirm and pay ${naira(quote.totalKobo)} from wallet`
+                          : `Confirm and pay ${naira(quote.totalKobo)}`}
+                </button>
               </div>
-            )}
-            {quote.checkout !== "DISABLED" && <PaymentMethodPicker methods={quote.paymentMethods} value={method} onChange={setMethod} />}
-            {quote.checkout === "TEST" && (
-              <div className="notice notice-warn">
-                <p>Test mode: payment is simulated and no money moves.</p>
+          ) : (
+              <div className="empty">
+                <h3>Price appears here</h3>
+                <p className="muted">Choose a document, a shop and your options, then get the exact price. Nothing is charged until you confirm.</p>
               </div>
-            )}
-            <button className="btn btn-primary" style={{ width: "100%" }} disabled={busy || !pickup || new Date(quote.expiresAt) < new Date()} onClick={confirmAndPay}>
-              {busy ? "Placing order…" : `Confirm and pay ${naira(quote.totalKobo)}`}
-            </button>
-          </div>
-        ) : (
-          <div className="empty">
-            <h3>Price appears here</h3>
-            <p className="muted">Choose a document, a shop and your options, then get the exact price. Nothing is charged until you confirm.</p>
-          </div>
-        )}
+          )}
+        </div>
       </div>
-    </div>
   );
 }
 
 export default function PrintPage() {
   return (
-    <>
-      <PageHead title="Print something" />
-      <Suspense fallback={<Skeleton />}>
-        <Wizard />
-      </Suspense>
-    </>
+      <>
+        <PageHead title="Print something" />
+        <Suspense fallback={<Skeleton />}>
+          <Wizard />
+        </Suspense>
+      </>
   );
 }

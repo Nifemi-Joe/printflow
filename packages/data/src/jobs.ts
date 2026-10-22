@@ -10,7 +10,8 @@ export type JobKind =
   | "RECONCILE_PAYMENTS"
   | "REFUND_PROCESS"
   | "PRIVACY_EXPORT"
-  | "PRIVACY_ERASE";
+  | "PRIVACY_ERASE"
+  | "PROVIDER_REVERIFY";
 
 export interface JobRow {
   id: string;

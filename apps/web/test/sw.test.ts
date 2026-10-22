@@ -8,6 +8,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 const SRC = readFileSync(new URL("../public/sw.js", import.meta.url), "utf8");
 const ORIGIN = "https://printflow.example";
+/** Read from the worker itself: bumping its version is a deployment act, not a test change. */
+const VERSION = /const VERSION = "([^"]+)"/.exec(SRC)![1];
+const PAGES = `${VERSION}-pages`;
+const STATIC = `${VERSION}-static`;
 
 class FakeCache {
   store = new Map<string, Response>();
@@ -79,8 +83,8 @@ describe("service worker", () => {
     await sw.fire("install");
     sw.caches.set("pf-v0-pages", new FakeCache());
     await sw.fire("activate");
-    expect([...sw.caches.keys()].sort()).toEqual(["pf-v1-pages", "pf-v1-static"]);
-    expect(await sw.caches.get("pf-v1-pages")!.match("/offline")).toBeTruthy();
+    expect([...sw.caches.keys()].sort()).toEqual([PAGES, STATIC].sort());
+    expect(await sw.caches.get(PAGES)!.match("/offline")).toBeTruthy();
   });
 
   it("never handles the API, so it is always fresh and never cached", async () => {
@@ -113,9 +117,21 @@ describe("service worker", () => {
     const sw = boot();
     await sw.fire("install");
     await (await sw.get("/verify-email?token=secret-one-time-token", "navigate"))!;
-    const keys = (await sw.caches.get("pf-v1-pages")!.keys()).map((r) => r.url);
+    const keys = (await sw.caches.get(PAGES)!.keys()).map((r) => r.url);
     expect(keys).toContain(`${ORIGIN}/verify-email`);
     expect(keys.some((k) => k.includes("secret-one-time-token"))).toBe(false);
+  });
+
+  it("keeps the logo offline, so the loader and the offline page still carry the brand", async () => {
+    const sw = boot();
+    await sw.fire("install");
+    // Precached at install: nothing has to be online for the first offline paint.
+    expect(await sw.caches.get(STATIC)!.match("/brand/mark-128.png")).toBeTruthy();
+    // And served from the cache once seen, like the other static assets.
+    await (await sw.get("/brand/mark-512.png"))!;
+    online = false;
+    const r = await (await sw.get("/brand/mark-512.png"))!;
+    expect(await r.text()).toBe("body of /brand/mark-512.png");
   });
 
   it("ignores other origins and non-GET requests", async () => {

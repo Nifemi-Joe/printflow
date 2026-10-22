@@ -10,6 +10,13 @@ Built for Nigerian campuses:
   texted code, reset a password by text, and get a text when prints are ready (email works too).
 - **Pay by card, bank transfer or USSD** through Paystack. Every payment is verified, so there
   are no fake transfer alerts.
+- **Students can print for each other**: a student with their own printer registers in
+  minutes. PrintFlow proves what it can about them (university email, matric number,
+  an admin who met them), shows every student how far that got, and keeps an unproven
+  provider off the list, capped per order, and behind a warning until it is proven.
+- **Wallet**: students top up once and pay for prints in one tap, or split a payment with
+  card, transfer or USSD. Refunds land in the wallet instantly. Universities can give print
+  credit. Spend-only: wallet money cannot be withdrawn.
 - **Shop power status**: staff mark "Light on", "Generator on" or "Light out, back at 2pm", and
   students see it before they choose a shop.
 - **Installable web app**: add it to the home screen from the browser; light on data, with
@@ -19,7 +26,7 @@ This repository is the complete product: web app, mobile app, API, background wo
 database schema, tests, CI and deployment files.
 
 > **Status, honestly:** the core product works end to end and is covered by automated tests
-> (318 unit, integration and API tests, 40 browser tests across three screen sizes, a mobile smoke test and a load check).
+> (376 unit, integration and API tests, 40 browser tests across three screen sizes, a mobile smoke test and a load check).
 > It has **not** been deployed, and several external integrations are built but unverified
 > against the real services: Paystack payments (including bank transfer and USSD), Termii SMS
 > (tested against a local fake gateway), ClamAV (tested against a protocol-accurate fake),
@@ -96,7 +103,7 @@ Browser tests, the mobile smoke test and how to run the whole stack are in
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md): components, request flow, order lifecycle, decisions
-- [API guide](docs/API.md) and [OpenAPI spec](docs/openapi.json) (114 operations)
+- [API guide](docs/API.md) and [OpenAPI spec](docs/openapi.json) (131 operations)
 - [Database](docs/DATABASE.md): tables, invariants enforced in SQL, migrations
 - [Threat model](docs/THREAT_MODEL.md): assets, threats, controls, known gaps
 - [Deployment](docs/DEPLOYMENT.md) and [environment template](.env.example)
@@ -110,10 +117,14 @@ Browser tests, the mobile smoke test and how to run the whole stack are in
 1. Configure Paystack keys, run the payment and refund flows against Paystack's test mode,
    then set `PAYMENTS_LIVE_ENABLED=true`. Checkout stays blocked until you do.
 2. Run ClamAV (`SCANNER=CLAMAV`). The worker refuses to start in production without it.
-3. Configure SMTP over TLS (production refuses log-only email) and Termii for SMS (or set
+3. Decide whether to let students run print shops at each university (off by default),
+   and set that university's student email domains and matric number format.
+4. Take legal advice on the student wallet (spend-only, held in your Paystack balance)
+   before taking real top-ups, or set `WALLET_ENABLED=false`.
+5. Configure SMTP over TLS (production refuses log-only email) and Termii for SMS (or set
    `SMS_DRIVER=NONE` to launch without phone features). Enable bank transfer and USSD in
    the Paystack dashboard.
-4. Build and run the container images on your infrastructure; they have not been built yet.
-5. Have each university publish a real rate card. Students cannot check out against a
+6. Build and run the container images on your infrastructure; they have not been built yet.
+7. Have each university publish a real rate card. Students cannot check out against a
    shop with no published prices.
-6. Commission an independent security review. None has been done.
+8. Commission an independent security review. None has been done.

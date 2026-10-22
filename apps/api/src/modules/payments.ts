@@ -19,16 +19,16 @@ import { z } from "zod";
 const PaystackEvent = z.object({
   event: z.string().max(100),
   data: z
-    .object({
-      id: z.union([z.number(), z.string()]).optional(),
-      reference: z.string().max(200).optional(),
-      refund_reference: z.string().max(200).optional(),
-      transaction_reference: z.string().max(200).optional(),
-      amount: z.number().int().optional(),
-      currency: z.string().max(5).optional(),
-      channel: z.string().max(40).optional(),
-    })
-    .passthrough(),
+      .object({
+        id: z.union([z.number(), z.string()]).optional(),
+        reference: z.string().max(200).optional(),
+        refund_reference: z.string().max(200).optional(),
+        transaction_reference: z.string().max(200).optional(),
+        amount: z.number().int().optional(),
+        currency: z.string().max(5).optional(),
+        channel: z.string().max(40).optional(),
+      })
+      .passthrough(),
 });
 
 const TestEvent = z.object({
@@ -43,9 +43,9 @@ const TestEvent = z.object({
 @Injectable()
 export class WebhookProcessor {
   constructor(
-    @Inject(PG_POOL) private readonly pool: Pool,
-    @Inject(CONFIG) private readonly cfg: AppConfig,
-    @Inject(LOGGER) private readonly log: Logger,
+      @Inject(PG_POOL) private readonly pool: Pool,
+      @Inject(CONFIG) private readonly cfg: AppConfig,
+      @Inject(LOGGER) private readonly log: Logger,
   ) {}
 
   testEnabled(): boolean {
@@ -135,40 +135,49 @@ export class WebhooksController {
 @Controller("v1/test-payments")
 export class TestPaymentsController {
   constructor(
-    @Inject(PG_POOL) private readonly pool: Pool,
-    @Inject(Access) private readonly access: Access,
-    @Inject(WebhookProcessor) private readonly hooks: WebhookProcessor,
+      @Inject(PG_POOL) private readonly pool: Pool,
+      @Inject(Access) private readonly access: Access,
+      @Inject(WebhookProcessor) private readonly hooks: WebhookProcessor,
   ) {}
 
-  private async ownedPayment(req: PfRequest, reference: string) {
+  /** An order payment or a wallet top-up started by this student with the TEST provider. */
+  private async owned(req: PfRequest, reference: string) {
     if (!this.hooks.testEnabled()) throw Errors.notFound("route");
     const a = this.access.user(req);
     const { rows } = await this.pool.query<{ amount_kobo: string; status: string; order_id: string; order_reference: string; shop_name: string; requested_channel: string | null }>(
-      `SELECT p.amount_kobo, p.status, p.order_id, o.reference AS order_reference, s.name AS shop_name, p.requested_channel
+        `SELECT p.amount_kobo, p.status, p.order_id, o.reference AS order_reference, s.name AS shop_name, p.requested_channel
          FROM payments p JOIN orders o ON o.id = p.order_id JOIN shops s ON s.id = o.shop_id
-        WHERE p.provider = 'TEST' AND p.provider_reference = $1 AND o.student_user_id = $2`,
-      [reference, a.userId],
+         WHERE p.provider = 'TEST' AND p.provider_reference = $1 AND o.student_user_id = $2`,
+        [reference, a.userId],
     );
-    if (!rows[0]) throw Errors.notFound("payment");
-    return rows[0];
+    if (rows[0]) return { ...rows[0], kind: "ORDER" as const, returnTo: `/student/orders/${rows[0].order_id}` };
+    const t = await this.pool.query<{ amount_kobo: string; status: string; requested_channel: string | null }>(
+        `SELECT amount_kobo, status, requested_channel FROM wallet_topups WHERE provider = 'TEST' AND provider_reference = $1 AND user_id = $2`,
+        [reference, a.userId],
+    );
+    if (!t.rows[0]) throw Errors.notFound("payment");
+    return { ...t.rows[0], kind: "TOPUP" as const, order_id: null, order_reference: "Wallet top-up", shop_name: "PrintFlow wallet", returnTo: `/student/wallet?topup=${reference}` };
   }
 
   @Get(":reference")
   async get(@Req() req: PfRequest, @Param("reference") reference: string) {
-    const p = await this.ownedPayment(req, reference);
+    const p = await this.owned(req, reference);
+    const label = p.kind === "TOPUP" ? reference.slice(-8).toUpperCase() : p.order_reference;
     return {
       reference,
+      kind: p.kind,
       amountKobo: Number(p.amount_kobo),
       status: p.status,
       orderId: p.order_id,
       orderReference: p.order_reference,
       shopName: p.shop_name,
       requestedMethod: p.requested_channel,
+      returnTo: p.returnTo,
       testMode: true,
       // What a real checkout would show for each method. Clearly fake: nothing here is a real account or code.
       simulated: {
-        bankTransfer: { bank: "Test Bank (simulated)", accountNumber: "0000000000", accountName: `PrintFlow ${p.order_reference}`, note: "Not a real account. In live mode Paystack shows a one-time account number." },
-        ussd: { code: `*000*${p.order_reference.replace(/\W/g, "")}#`, note: "Not a real code. In live mode Paystack shows your bank's USSD code." },
+        bankTransfer: { bank: "Test Bank (simulated)", accountNumber: "0000000000", accountName: `PrintFlow ${label}`, note: "Not a real account. In live mode Paystack shows a one-time account number." },
+        ussd: { code: `*000*${label.replace(/\W/g, "")}#`, note: "Not a real code. In live mode Paystack shows your bank's USSD code." },
       },
     };
   }
@@ -176,21 +185,21 @@ export class TestPaymentsController {
   @Post(":reference/complete")
   @HttpCode(200)
   async complete(@Req() req: PfRequest, @Param("reference") reference: string, @Body() body: unknown) {
-    const p = await this.ownedPayment(req, reference);
+    const p = await this.owned(req, reference);
     const { outcome, method } = parse(Schemas.CompleteTestPayment, body);
     const used = (method ?? p.requested_channel ?? "CARD").toLowerCase();
     const raw = Buffer.from(
-      JSON.stringify({
-        id: `test_evt_${randomUUID()}`,
-        event: outcome === "success" ? "charge.success" : "charge.failed",
-        reference,
-        amount: Number(p.amount_kobo),
-        currency: "NGN",
-        channel: used,
-      }),
+        JSON.stringify({
+          id: `test_evt_${randomUUID()}`,
+          event: outcome === "success" ? "charge.success" : "charge.failed",
+          reference,
+          amount: Number(p.amount_kobo),
+          currency: "NGN",
+          channel: used,
+        }),
     );
     const result = await this.hooks.test(raw, this.hooks.signTest(raw));
-    return { outcome: result, orderId: p.order_id };
+    return { outcome: result, orderId: p.order_id, kind: p.kind, returnTo: p.returnTo };
   }
 }
 
@@ -198,9 +207,9 @@ export class TestPaymentsController {
 @Controller("v1/files")
 export class FilesController {
   constructor(
-    @Inject(CONFIG) private readonly cfg: AppConfig,
-    @Inject(STORAGE) private readonly storage: ObjectStorage,
-    @Inject(RateLimiter) private readonly limiter: RateLimiter,
+      @Inject(CONFIG) private readonly cfg: AppConfig,
+      @Inject(STORAGE) private readonly storage: ObjectStorage,
+      @Inject(RateLimiter) private readonly limiter: RateLimiter,
   ) {}
 
   @Get(":token")
@@ -223,8 +232,8 @@ export class FilesController {
 @Controller("v1")
 export class HealthController {
   constructor(
-    @Inject(PG_POOL) private readonly pool: Pool,
-    @Inject(CONFIG) private readonly cfg: AppConfig,
+      @Inject(PG_POOL) private readonly pool: Pool,
+      @Inject(CONFIG) private readonly cfg: AppConfig,
   ) {}
 
   @Get("health")

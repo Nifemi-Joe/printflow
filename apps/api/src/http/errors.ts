@@ -70,6 +70,20 @@ export function toApiError(e: unknown): ApiError {
       case "P0005":
       case "P0006":
         return Errors.rule(msg, "FINANCIAL_RULE");
+      case "P0007":
+        return Errors.rule("wallets are for student accounts", "NO_WALLET");
+      case "P0008":
+        return Errors.rule(msg, "NOT_PAYABLE");
+      case "P0009":
+        return Errors.rule("your wallet balance is not enough, or this would take it over its limit", "INSUFFICIENT_BALANCE");
+      case "P0010":
+        return Errors.conflict(msg, "STUDENT_PROVIDERS_OFF");
+      case "P0011":
+        return Errors.conflict(msg, "UNDERTAKING_REQUIRED");
+      case "P0012":
+        return Errors.rule(msg, "PROVIDER_NOT_VERIFIED");
+      case "P0013":
+        return Errors.rule(msg, "PROVIDER_ORDER_CAP");
       case "23505":
         return Errors.conflict("this already exists", "DUPLICATE");
       case "23503":

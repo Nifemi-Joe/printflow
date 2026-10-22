@@ -77,7 +77,9 @@ async function paidOrder() {
   }
   assert(ready, "worker prepared the uploaded PDF");
   const shops = await call(t, `/universities/${me.student.universityId}/shops`);
-  const shop = shops.items.find((s) => s.acceptingOrders);
+  // The main journey runs at a fully verified shop; the student-provider warning is
+  // exercised separately below.
+  const shop = shops.items.find((s) => s.acceptingOrders && !s.trust.limits.needsAcknowledgement);
   const quote = await call(t, "/quotes", { method: "POST", body: { documentVersionId: up.versionId, shopId: shop.id, spec: { copies: 1, paperSize: "A4", colourMode: "BW", sides: "SINGLE", finishingCodes: [] } } });
   const order = await call(t, "/orders", { method: "POST", body: { quoteId: quote.id, pickupLocationId: shop.pickupLocations[0].id }, headers: { "idempotency-key": `smoke-${Date.now()}-abcdefgh` } });
   const pay = await call(t, `/orders/${order.id}/payments`, { method: "POST" });
@@ -192,9 +194,27 @@ console.log("Student screens");
   await noOverflow(page, "student documents");
   await shot(page, "student-documents");
 
-  // Print: shops show their power, and the price offers card, bank transfer and USSD.
+  // Every shop says who is behind it, and an unverified student carries a warning the
+  // student has to accept before the order can go through.
   await page.getByText("Print", { exact: true }).last().click();
+  await page.getByText("Approved print shop").first().waitFor();
+  assert(true, "shops show how far the person behind them has been verified");
   await page.getByRole("radio", { name: /Mobile smoke notes/ }).first().click();
+  const hostel = page.getByRole("radio", { name: /Block C Room 14/ });
+  if (await hostel.count()) {
+    await hostel.first().click();
+    await page.getByRole("button", { name: "Get exact price" }).click();
+    const warning = page.getByText(/is a student, not a registered shop/);
+    await warning.waitFor();
+    assert(true, "an unverified student provider is called out before ordering");
+    await noOverflow(page, "student unverified provider");
+    await warning.scrollIntoViewIfNeeded();
+    await shot(page, "student-unverified-provider");
+    await page.getByLabel("I understand, use this shop").click();
+    assert(true, "the student can agree and continue");
+  }
+
+  // Price and power, at the approved shop. Choosing it clears the warning above.
   await page.getByRole("radio", { name: /Faculty Print Hub/ }).first().click();
   await page.getByText(/^(Light on|Generator on|Light out)/).first().waitFor();
   assert(true, "student sees the shop's power status");
@@ -204,6 +224,63 @@ console.log("Student screens");
   assert((await page.getByRole("radio", { name: /USSD/ }).count()) === 1, "price offers card, bank transfer and USSD");
   await noOverflow(page, "student pay with");
   await shot(page, "student-pay-with");
+  await page.context().close();
+}
+
+console.log("Student wallet");
+{
+  // An unpaid order, and a top-up that covers it (whole naira, so a few kobo may be left).
+  const t = studentToken;
+  const me = await call(t, "/auth/me");
+  const docs = await call(t, "/documents");
+  const ready = docs.items.find((d) => d.latestVersion?.status === "READY" || d.versions?.[0]?.status === "READY") ?? docs.items[0];
+  const versionId = ready.latestVersion?.id ?? ready.versions?.[0]?.id ?? ready.latestVersionId;
+  const shops = await call(t, `/universities/${me.student.universityId}/shops`);
+  // The main journey runs at a fully verified shop; the student-provider warning is
+  // exercised separately below.
+  const shop = shops.items.find((s) => s.acceptingOrders && !s.trust.limits.needsAcknowledgement);
+  const quote = await call(t, "/quotes", { method: "POST", body: { documentVersionId: versionId, shopId: shop.id, spec: { copies: 1, paperSize: "A4", colourMode: "BW", sides: "SINGLE", finishingCodes: [] } } });
+  const unpaid = await call(t, "/orders", { method: "POST", body: { quoteId: quote.id, pickupLocationId: shop.pickupLocations[0].id }, headers: { "idempotency-key": `smoke-wallet-${Date.now()}-abc` } });
+  const before = (await call(t, "/me/wallet")).totalKobo;
+  const need = Math.max(10_000, Math.ceil(Math.max(0, quote.totalKobo - before) / 100) * 100);
+  const topup = await call(t, "/me/wallet/topups", { method: "POST", body: { amountKobo: need, method: "USSD" } });
+  await call(t, `/test-payments/${topup.reference}/complete`, { method: "POST", body: { outcome: "success" } });
+
+  const page = await phone();
+  await page.goto(`${APP}/login`);
+  await page.getByRole("radio", { name: "Text me a code" }).click();
+  await page.getByLabel("Phone number").fill("0803 000 0001");
+  const after = Date.now() - 1000;
+  await page.getByRole("button", { name: "Text me a sign-in code" }).click();
+  await page.getByText(/a code is on its way/).waitFor();
+  await page.getByLabel("6-digit code").fill(await smsCodeFor("+2348030000001", after));
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByText("Wallet", { exact: true }).last().click();
+  const balance = (await call(t, "/me/wallet")).totalKobo;
+  await page.getByLabel(/Wallet balance/).waitFor();
+  const shown = await page.getByLabel(/Wallet balance/).getAttribute("aria-label");
+  assert(shown.includes((balance / 100).toLocaleString("en-NG").split(".")[0]), "wallet tab shows the balance after a top-up");
+  await page.getByText("Top-up").first().waitFor();
+  assert(true, "wallet activity lists the top-up");
+  await noOverflow(page, "student wallet");
+  await shot(page, "student-wallet");
+
+  // Navigate inside the app (a full page load would start a new web session).
+  const unpaidRef = (await call(t, `/orders/${unpaid.id}`)).reference;
+  await page.getByText("Orders", { exact: true }).last().click();
+  await page.getByText(unpaidRef).first().click();
+  await page.getByLabel("Use my wallet").waitFor();
+  await page.getByRole("button", { name: /from wallet$/ }).click();
+  await page.getByText("Paid from your wallet").waitFor({ timeout: 20_000 });
+  assert((await call(t, `/orders/${unpaid.id}`)).status === "PAID", "order paid entirely from the wallet, with no checkout");
+  await shot(page, "student-paid-from-wallet");
+  // Cancel it again: the money goes straight back.
+  await page.getByRole("button", { name: "Cancel and refund" }).click();
+  await page.getByText(/is back in your wallet/).waitFor({ timeout: 20_000 });
+  assert((await call(t, "/me/wallet")).totalKobo === balance, "cancelling returns the wallet money at once");
+  // Leave the demo student with less than one order's worth, so other tests still see a checkout.
+  const spend = await call(t, "/orders", { method: "POST", body: { quoteId: (await call(t, "/quotes", { method: "POST", body: { documentVersionId: versionId, shopId: shop.id, spec: { copies: 1, paperSize: "A4", colourMode: "BW", sides: "SINGLE", finishingCodes: [] } } })).id, pickupLocationId: shop.pickupLocations[0].id }, headers: { "idempotency-key": `smoke-wallet-spend-${Date.now()}` } });
+  await call(t, `/orders/${spend.id}/payments`, { method: "POST", body: { useWallet: true } }).catch(() => undefined);
   await page.context().close();
 }
 

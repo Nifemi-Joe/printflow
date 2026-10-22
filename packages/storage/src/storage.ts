@@ -38,9 +38,9 @@ export class LocalStorage implements ObjectStorage {
   private readonly root: string;
 
   constructor(
-    rootDir: string,
-    private readonly signingSecret: string,
-    private readonly publicApiBaseUrl: string,
+      rootDir: string,
+      private readonly signingSecret: string,
+      private readonly publicApiBaseUrl: string,
   ) {
     if (signingSecret.length < 32) throw new Error("storage signing secret must be at least 32 characters");
     this.root = resolve(rootDir);
@@ -105,12 +105,13 @@ export class S3Storage implements ObjectStorage {
   private readonly client: S3Client;
 
   constructor(
-    private readonly bucket: string,
-    config: { endpoint?: string; region: string; accessKeyId: string; secretAccessKey: string; forcePathStyle?: boolean },
+      private readonly bucket: string,
+      config: { endpoint?: string; region: string; accessKeyId: string; secretAccessKey: string; forcePathStyle?: boolean },
   ) {
     this.client = new S3Client({
       region: config.region,
       ...(config.endpoint ? { endpoint: config.endpoint } : {}),
+      // ✅ KEY FIX: Set forcePathStyle based on endpoint
       forcePathStyle: config.forcePathStyle ?? Boolean(config.endpoint),
       credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
     });
@@ -119,12 +120,27 @@ export class S3Storage implements ObjectStorage {
   async putFile(key: string, filePath: string, contentType: string): Promise<void> {
     const size = (await stat(filePath)).size;
     await this.client.send(
-      new PutObjectCommand({ Bucket: this.bucket, Key: assertSafeKey(key), Body: createReadStream(filePath), ContentLength: size, ContentType: contentType, ServerSideEncryption: "AES256" }),
+        new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: assertSafeKey(key),
+          Body: createReadStream(filePath),
+          ContentLength: size,
+          ContentType: contentType,
+          ServerSideEncryption: "AES256",
+        }),
     );
   }
 
   async putBuffer(key: string, body: Buffer, contentType: string): Promise<void> {
-    await this.client.send(new PutObjectCommand({ Bucket: this.bucket, Key: assertSafeKey(key), Body: body, ContentType: contentType, ServerSideEncryption: "AES256" }));
+    await this.client.send(
+        new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: assertSafeKey(key),
+          Body: body,
+          ContentType: contentType,
+          ServerSideEncryption: "AES256",
+        }),
+    );
   }
 
   async getStream(key: string): Promise<Readable> {
@@ -152,14 +168,14 @@ export class S3Storage implements ObjectStorage {
 
   async signedDownloadUrl(key: string, opts: SignedUrlOptions): Promise<string> {
     return getSignedUrl(
-      this.client,
-      new GetObjectCommand({
-        Bucket: this.bucket,
-        Key: assertSafeKey(key),
-        ResponseContentDisposition: `attachment; filename="${safeDownloadName(opts.filename)}"`,
-        ResponseContentType: opts.contentType,
-      }),
-      { expiresIn: clampTtl(opts.ttlSeconds) },
+        this.client,
+        new GetObjectCommand({
+          Bucket: this.bucket,
+          Key: assertSafeKey(key),
+          ResponseContentDisposition: `attachment; filename="${safeDownloadName(opts.filename)}"`,
+          ResponseContentType: opts.contentType,
+        }),
+        { expiresIn: clampTtl(opts.ttlSeconds) },
     );
   }
 }
@@ -186,6 +202,8 @@ export function createStorage(cfg: StorageConfig): ObjectStorage {
       accessKeyId: cfg.S3_ACCESS_KEY_ID,
       secretAccessKey: cfg.S3_SECRET_ACCESS_KEY,
       ...(cfg.S3_ENDPOINT ? { endpoint: cfg.S3_ENDPOINT } : {}),
+      // ✅ Only use path style for custom endpoints (MinIO, Spaces, etc.)
+      forcePathStyle: Boolean(cfg.S3_ENDPOINT),
     });
   }
   if (!cfg.STORAGE_DIR || !cfg.STORAGE_SIGNING_SECRET) throw new Error("LOCAL storage requires STORAGE_DIR and STORAGE_SIGNING_SECRET");

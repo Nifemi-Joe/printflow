@@ -1,0 +1,22 @@
+{
+  // Settings for tools run from the repository root: `tsx`, editors and anything else
+  // that looks for the nearest tsconfig.json from the working directory. Without this,
+  // `tsx apps/api/src/main.ts` from the root compiles the API with esbuild's defaults
+  // and fails on NestJS's parameter decorators.
+  //
+  // Each package and app still has its own tsconfig.json; those are what `pnpm typecheck`
+  // and the builds use (they always pass an explicit `-p`). This file is only a fallback,
+  // so it type-checks nothing on its own.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": false,
+    "exactOptionalPropertyTypes": false,
+    "types": ["node"]
+  },
+  "include": ["apps/*/src/**/*", "apps/*/test/**/*", "apps/*/scripts/**/*", "packages/*/src/**/*", "packages/*/test/**/*", "db/**/*"],
+  "exclude": ["**/dist/**", "**/node_modules/**", "**/.next/**", "**/.expo/**", "**/dist-*/**"]
+}

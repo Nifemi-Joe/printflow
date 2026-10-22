@@ -2,6 +2,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { NotFoundError, RuleViolationError } from "./errors.js";
 import { transitionOrder } from "./orders.js";
 import type { Queryable } from "./tx.js";
+import { creditTopup, naira, noRefundInFlight, notifyWallet, refundOrder, type RefundDestination } from "./wallet.js";
 
 /**
  * Paystack signs the raw request body with HMAC-SHA512 using the secret key and
@@ -40,7 +41,10 @@ export type WebhookOutcome =
   | "FAILED_RECORDED"
   | "REFUND_COMPLETED"
   | "REFUND_FAILED"
-  | "IGNORED_EVENT_TYPE";
+  | "IGNORED_EVENT_TYPE"
+  | "TOPUP_CREDITED"
+  | "TOPUP_FAILED"
+  | "CREDITED_TO_WALLET";
 
 /**
  * Records a provider webhook in the inbox and applies it at most once.
@@ -75,7 +79,34 @@ export async function applyPaymentEvent(db: Queryable, ev: PaymentEvent): Promis
     [ev.provider, ev.reference],
   );
   const payment = rows[0];
-  if (!payment) return finish("UNKNOWN_REFERENCE", "no payment with this reference");
+  if (!payment) return finish(...(await applyTopupEvent(db, ev)));
+
+  // Money for a checkout the student had left (they started another, or the order
+  // ended). It is never kept by us and never lost: it goes to their wallet.
+  if ((payment.status === "ABANDONED" || payment.status === "FAILED") && ev.eventType === "charge.success") {
+    if (ev.currency !== "NGN" || !Number.isSafeInteger(ev.amountKobo) || BigInt(ev.amountKobo) !== BigInt(payment.amount_kobo)) {
+      return finish("AMOUNT_MISMATCH", `provider amount ${ev.amountKobo} ${ev.currency} != expected ${payment.amount_kobo} NGN`);
+    }
+    const o = await db.query<{ student_user_id: string; university_id: string; reference: string }>(
+      `SELECT student_user_id, university_id, reference FROM orders WHERE id = $1`,
+      [payment.order_id],
+    );
+    const ins = await db.query(
+      `INSERT INTO wallet_entries (user_id, university_id, kind, cash_kobo, payment_id, idempotency_key, note)
+       VALUES ($1, $2, 'UNMATCHED_PAYMENT', $3, $4, $5, $6) ON CONFLICT DO NOTHING`,
+      [o.rows[0]!.student_user_id, o.rows[0]!.university_id, ev.amountKobo, payment.id, `unmatched:${payment.id}`, `Earlier checkout for ${o.rows[0]!.reference}`],
+    );
+    if (ins.rowCount) {
+      await notifyWallet(db, {
+        userId: o.rows[0]!.student_user_id,
+        kind: "wallet.unmatched_payment",
+        title: "Payment added to your wallet",
+        body: `We received ${naira(ev.amountKobo)} for an earlier checkout of ${o.rows[0]!.reference} that you had moved on from. It's in your PrintFlow wallet.`,
+        sms: true,
+      });
+    }
+    return finish("CREDITED_TO_WALLET");
+  }
   if (payment.status !== "INITIATED") return finish("ALREADY_FINAL");
 
   if (ev.eventType === "charge.failed") {
@@ -111,6 +142,27 @@ export async function applyPaymentEvent(db: Queryable, ev: PaymentEvent): Promis
   });
   await enqueueRefund(db, refund.refundId);
   return finish("PAID_LATE_REFUND_REQUESTED");
+}
+
+/** A charge event whose reference is a wallet top-up rather than an order payment. */
+async function applyTopupEvent(db: Queryable, ev: PaymentEvent): Promise<[WebhookOutcome, string?]> {
+  const { rows } = await db.query<{ id: string; status: string; amount_kobo: string }>(
+    `SELECT id, status, amount_kobo FROM wallet_topups WHERE provider = $1 AND provider_reference = $2 FOR UPDATE`,
+    [ev.provider, ev.reference],
+  );
+  const t = rows[0];
+  if (!t) return ["UNKNOWN_REFERENCE", "no payment or top-up with this reference"];
+  if (ev.eventType === "charge.failed") {
+    if (t.status !== "INITIATED") return ["ALREADY_FINAL"];
+    await db.query(`UPDATE wallet_topups SET status = 'FAILED' WHERE id = $1`, [t.id]);
+    return ["TOPUP_FAILED"];
+  }
+  if (t.status === "SUCCEEDED") return ["ALREADY_FINAL"];
+  if (ev.currency !== "NGN" || !Number.isSafeInteger(ev.amountKobo) || BigInt(ev.amountKobo) !== BigInt(t.amount_kobo)) {
+    return ["AMOUNT_MISMATCH", `provider amount ${ev.amountKobo} ${ev.currency} != top-up ${t.amount_kobo} NGN`];
+  }
+  await creditTopup(db, t.id, ev.amountKobo, ev.channel ?? null);
+  return ["TOPUP_CREDITED"];
 }
 
 async function applyRefundEvent(db: Queryable, ev: PaymentEvent): Promise<WebhookOutcome> {
@@ -180,9 +232,13 @@ export async function requestRefund(
  * Re-issues a refund after the provider definitively refused the previous one
  * (status FAILED). Only for orders still in REFUND_PENDING with no refund in
  * flight; the amount is whatever has not been refunded yet, so the database cap
- * still guarantees the student can never be refunded more than they paid.
+ * still guarantees the student can never be refunded more than they paid. It can go
+ * back through the provider again, or to the student's wallet (instant).
  */
-export async function retryFailedRefund(db: Queryable, params: { orderId: string; universityId: string; reason: string; requestedBy: string }): Promise<{ refundId: string; amountKobo: number }> {
+export async function retryFailedRefund(
+  db: Queryable,
+  params: { orderId: string; universityId: string; reason: string; requestedBy: string; destination?: RefundDestination },
+): Promise<{ refundId: string | null; amountKobo: number; destination: RefundDestination }> {
   const order = await db.query<{ status: string }>(`SELECT status FROM orders WHERE id = $1 AND university_id = $2 FOR UPDATE`, [params.orderId, params.universityId]);
   if (!order.rows[0]) throw new NotFoundError("order");
   if (order.rows[0].status !== "REFUND_PENDING") throw new RuleViolationError("only orders waiting for a refund can have it retried", "NOT_REFUND_PENDING");
@@ -192,21 +248,18 @@ export async function retryFailedRefund(db: Queryable, params: { orderId: string
   );
   if (Number(counts.rows[0]!.open) > 0) throw new RuleViolationError("a refund is already in progress for this order", "REFUND_IN_PROGRESS");
   if (Number(counts.rows[0]!.failed) === 0) throw new RuleViolationError("there is no failed refund to retry", "NO_FAILED_REFUND");
-  const pay = await db.query<{ id: string; remaining: string }>(
-    `SELECT p.id, p.amount_kobo - COALESCE((SELECT sum(r.amount_kobo) FROM refunds r WHERE r.payment_id = p.id AND r.status <> 'FAILED'), 0) AS remaining
-       FROM payments p WHERE p.order_id = $1 AND p.status = 'SUCCEEDED' FOR UPDATE OF p`,
-    [params.orderId],
-  );
-  const remaining = Number(pay.rows[0]?.remaining ?? 0);
-  if (!pay.rows[0] || remaining <= 0) throw new RuleViolationError("nothing is left to refund on this order", "NOTHING_TO_REFUND");
-  const { refundId } = await requestRefund(db, {
+  const destination = params.destination ?? "PROVIDER";
+  const r = await refundOrder(db, {
     orderId: params.orderId,
-    paymentId: pay.rows[0].id,
-    amountKobo: remaining,
+    destination,
     reason: params.reason,
     idempotencyKey: `order-refund-retry:${params.orderId}:${counts.rows[0]!.failed}`,
     requestedBy: params.requestedBy,
   });
-  await enqueueRefund(db, refundId);
-  return { refundId, amountKobo: remaining };
+  const amount = r.toWalletKobo + r.toProviderKobo;
+  if (amount <= 0) throw new RuleViolationError("nothing is left to refund on this order", "NOTHING_TO_REFUND");
+  if (await noRefundInFlight(db, params.orderId)) {
+    await transitionOrder(db, { orderId: params.orderId, to: "REFUNDED", scope: { kind: "SYSTEM" }, actorUserId: null });
+  }
+  return { refundId: r.providerRefundId, amountKobo: amount, destination };
 }

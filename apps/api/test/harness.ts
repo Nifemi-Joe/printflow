@@ -61,7 +61,7 @@ export async function startHarness(env: Record<string, string> = {}, dbName?: st
     RATE_LIMIT_SCALE: "100",
     ...env,
   });
-  const log = pino({ level: "silent" });
+  const log = pino({ level: process.env.HARNESS_LOG ?? "silent" });
   const mailer = new CaptureMailer();
   const sms = new CaptureSms();
   const smsSender: SmsSender = cfg.SMS_DRIVER === "NONE" ? new NoneSms() : sms;
@@ -112,8 +112,8 @@ export async function startHarness(env: Record<string, string> = {}, dbName?: st
 export class Client {
   csrf = "";
   constructor(
-    readonly h: Harness,
-    readonly agent: ReturnType<typeof request.agent>,
+      readonly h: Harness,
+      readonly agent: ReturnType<typeof request.agent>,
   ) {}
 
   static async login(h: Harness, email: string, password = PASSWORD, extra: Record<string, unknown> = {}): Promise<Client> {
@@ -152,8 +152,8 @@ export async function createUser(h: Harness, label: string, opts: { platformRole
   const email = uniqueEmail(label);
   const hash = await argon2.hash(PASSWORD, { type: argon2.argon2id, memoryCost: 19_456, timeCost: 2, parallelism: 1 });
   const { rows } = await h.pool.query<{ id: string }>(
-    `INSERT INTO users (email, full_name, password_hash, platform_role, email_verified_at) VALUES ($1, $2, $3, $4, CASE WHEN $5 THEN now() END) RETURNING id`,
-    [email, `${label} Person`, hash, opts.platformRole ?? null, opts.verified ?? true],
+      `INSERT INTO users (email, full_name, password_hash, platform_role, email_verified_at) VALUES ($1, $2, $3, $4, CASE WHEN $5 THEN now() END) RETURNING id`,
+      [email, `${label} Person`, hash, opts.platformRole ?? null, opts.verified ?? true],
   );
   return { id: rows[0]!.id, email };
 }

@@ -11,7 +11,9 @@ export default function manifest(): MetadataRoute.Manifest {
     scope: "/",
     display: "standalone",
     orientation: "portrait",
-    background_color: "#f5f7f4",
+    // Android builds the installed app's own splash from background_color plus the
+    // 512 icon, so this is the brand ink — the same screen the mobile app shows.
+    background_color: "#000906",
     theme_color: "#05402d",
     lang: "en-NG",
     categories: ["education", "productivity"],

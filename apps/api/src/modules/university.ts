@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post, Put, Query, Req } from "@nestjs/common";
 import type { Pool } from "pg";
 import { ORDER_STATUS_LABELS, type OrderStatus } from "../../../../packages/domain/src/index.js";
-import { enqueueJob, enqueueRefund, requestRefund, retryFailedRefund, transitionOrder, withTransaction } from "../../../../packages/data/src/index.js";
+import { enqueueJob, passCheck, refundOrder, retryFailedRefund, transitionOrder, withTransaction } from "../../../../packages/data/src/index.js";
 import { validateRateCard } from "../../../../packages/pricing/src/index.js";
 import { Access, audit, type UniversityStaffContext } from "../http/access.js";
 import type { PfRequest } from "../http/context.js";
@@ -35,7 +35,9 @@ export class UniversityAdminController {
     const [uni, shops, orders, money, disputes, privacy] = await Promise.all([
       this.pool.query(
         `SELECT id, slug, name, status, pricing_mode AS "pricingMode", quote_ttl_seconds AS "quoteTtlSeconds", document_retention_days AS "documentRetentionDays",
-                service_fee_fixed_kobo AS "serviceFeeFixedKobo", service_fee_bps AS "serviceFeeBps" FROM universities WHERE id = $1`,
+                service_fee_fixed_kobo AS "serviceFeeFixedKobo", service_fee_bps AS "serviceFeeBps", welcome_credit_kobo::int AS "welcomeCreditKobo",
+                student_providers_allowed AS "studentProvidersAllowed", student_email_domains AS "studentEmailDomains", matric_pattern AS "matricPattern",
+                student_provider_cap_kobo::int AS "studentProviderCapKobo", provider_reverify_days AS "providerReverifyDays" FROM universities WHERE id = $1`,
         [u.universityId],
       ),
       this.pool.query(`SELECT status, count(*)::int AS n FROM shops WHERE university_id = $1 GROUP BY status`, [u.universityId]),
@@ -48,6 +50,21 @@ export class UniversityAdminController {
       this.pool.query<{ n: string }>(`SELECT count(*) AS n FROM disputes WHERE university_id = $1 AND status IN ('OPEN', 'UNDER_REVIEW')`, [u.universityId]),
       this.pool.query<{ n: string }>(`SELECT count(*) AS n FROM privacy_requests WHERE university_id = $1 AND status IN ('RECEIVED', 'IN_PROGRESS')`, [u.universityId]),
     ]);
+    const providers = await this.pool.query<{ waiting: string; student_run: string; unverified: string }>(
+      `SELECT count(*) FILTER (WHERE EXISTS (SELECT 1 FROM provider_verifications v WHERE v.shop_id = s.id AND v.status = 'PENDING')) AS waiting,
+              count(*) FILTER (WHERE s.kind = 'STUDENT_RUN') AS student_run,
+              count(*) FILTER (WHERE s.kind = 'STUDENT_RUN' AND s.verification_level = 'UNVERIFIED' AND s.accepting_orders) AS unverified
+         FROM shops s WHERE s.university_id = $1 AND s.status = 'APPROVED'`,
+      [u.universityId],
+    );
+    // Wallet money held for students (a liability: it is owed as printing) and recent flows.
+    const wallet = await this.pool.query<{ cash: string; promo: string; topups: string; spent: string }>(
+      `SELECT COALESCE((SELECT sum(cash_kobo) FROM wallets WHERE university_id = $1), 0) AS cash,
+              COALESCE((SELECT sum(promo_kobo) FROM wallets WHERE university_id = $1), 0) AS promo,
+              COALESCE((SELECT sum(cash_kobo) FROM wallet_entries WHERE university_id = $1 AND kind = 'TOPUP' AND created_at > now() - interval '30 days'), 0) AS topups,
+              COALESCE((SELECT -sum(cash_kobo + promo_kobo) FROM wallet_entries WHERE university_id = $1 AND kind IN ('ORDER_PAYMENT', 'ORDER_RETURN') AND created_at > now() - interval '30 days'), 0) AS spent`,
+      [u.universityId],
+    );
     const cards = await loadRateCards(this.pool, { universityId: u.universityId, shopId: null, publishedOnly: true });
     return {
       university: uni.rows[0],
@@ -59,6 +76,17 @@ export class UniversityAdminController {
       openDisputes: Number(disputes.rows[0]!.n),
       openPrivacyRequests: Number(privacy.rows[0]!.n),
       publishedCampusRateCards: cards.length,
+      providers: {
+        waitingChecks: Number(providers.rows[0]!.waiting),
+        studentRun: Number(providers.rows[0]!.student_run),
+        unverifiedTrading: Number(providers.rows[0]!.unverified),
+      },
+      wallet: {
+        studentCashKobo: Number(wallet.rows[0]!.cash),
+        studentPromoKobo: Number(wallet.rows[0]!.promo),
+        topUpsLast30DaysKobo: Number(wallet.rows[0]!.topups),
+        spentLast30DaysKobo: Number(wallet.rows[0]!.spent),
+      },
     };
   }
 
@@ -68,8 +96,26 @@ export class UniversityAdminController {
     const input = parse(Schemas.UniversitySettings, body);
     await this.pool.query(
       `UPDATE universities SET pricing_mode = COALESCE($2, pricing_mode), quote_ttl_seconds = COALESCE($3, quote_ttl_seconds),
-              document_retention_days = COALESCE($4, document_retention_days) WHERE id = $1`,
-      [u.universityId, input.pricingMode ?? null, input.quoteTtlSeconds ?? null, input.documentRetentionDays ?? null],
+              document_retention_days = COALESCE($4, document_retention_days), welcome_credit_kobo = COALESCE($5, welcome_credit_kobo),
+              student_providers_allowed = COALESCE($6, student_providers_allowed),
+              student_email_domains = COALESCE($7, student_email_domains),
+              matric_pattern = CASE WHEN $8::boolean THEN $9 ELSE matric_pattern END,
+              student_provider_cap_kobo = COALESCE($10, student_provider_cap_kobo),
+              provider_reverify_days = COALESCE($11, provider_reverify_days)
+        WHERE id = $1`,
+      [
+        u.universityId,
+        input.pricingMode ?? null,
+        input.quoteTtlSeconds ?? null,
+        input.documentRetentionDays ?? null,
+        input.welcomeCreditKobo ?? null,
+        input.studentProvidersAllowed ?? null,
+        input.studentEmailDomains ?? null,
+        input.matricPattern !== undefined,
+        input.matricPattern ?? null,
+        input.studentProviderCapKobo ?? null,
+        input.providerReverifyDays ?? null,
+      ],
     );
     await this.log(u, req, "university.settings_changed", "university", u.universityId, input);
     return this.overview(req, uid);
@@ -151,6 +197,34 @@ export class UniversityAdminController {
       [shopId, u.universityId, next, u.auth.userId, allowedFrom],
     );
     if (!rows[0]) throw Errors.conflict(`cannot ${action} this shop from its current status`, "INVALID_SHOP_STATUS");
+    // Approving a registered business is the identity review: the university has seen the
+    // premises and the paperwork. A student-run shop is different — approving it lets them
+    // trade, but what is known about the person still comes only from their own checks.
+    const kind = await this.pool.query<{ kind: string; name: string }>(`SELECT kind, name FROM shops WHERE id = $1`, [shopId]);
+    if (action === "approve" && kind.rows[0]?.kind === "BUSINESS") {
+      const { rows: policy } = await this.pool.query<{ provider_reverify_days: number }>(`SELECT provider_reverify_days FROM universities WHERE id = $1`, [u.universityId]);
+      await withTransaction(this.pool, (c) =>
+        passCheck(c, {
+          shopId,
+          universityId: u.universityId,
+          kind: "UNIVERSITY_REVIEW",
+          subject: kind.rows[0]!.name,
+          evidence: { method: "ADMIN", confirmedWith: "BUSINESS_APPROVAL" },
+          decidedBy: u.auth.userId,
+          validForDays: policy[0]!.provider_reverify_days,
+          note: reason,
+        }),
+      );
+    }
+    if (action === "suspend" || action === "remove") {
+      await withTransaction(this.pool, (c) =>
+        c.query(`UPDATE provider_verifications SET status = 'REVOKED', decided_by = $2, decided_at = now(), note = $3 WHERE shop_id = $1 AND status = 'PASSED'`, [
+          shopId,
+          u.auth.userId,
+          `Shop ${action}d: ${reason}`.slice(0, 1000),
+        ]),
+      );
+    }
     await this.log(u, req, `shop.${action}`, "shop", shopId, { reason }, shopId);
     return rows[0];
   }
@@ -303,19 +377,32 @@ export class UniversityAdminController {
     const [events, payments, refunds, disputes] = await Promise.all([
       this.pool.query(`SELECT from_status AS "from", to_status AS "to", actor_kind AS "actorKind", reason, occurred_at AS "at" FROM order_events WHERE order_id = $1 ORDER BY id`, [orderId]),
       this.pool.query(`SELECT provider, provider_reference AS reference, amount_kobo AS "amountKobo", status, confirmed_at AS "confirmedAt" FROM payments WHERE order_id = $1`, [orderId]),
-      this.pool.query(`SELECT id, amount_kobo AS "amountKobo", status, reason, requested_at AS "requestedAt" FROM refunds WHERE order_id = $1`, [orderId]),
+      this.pool.query(`SELECT id, amount_kobo AS "amountKobo", status, destination, reason, requested_at AS "requestedAt" FROM refunds WHERE order_id = $1`, [orderId]),
       this.pool.query(`SELECT id, category, status, description FROM disputes WHERE order_id = $1`, [orderId]),
     ]);
-    return { ...o.rows[0], events: events.rows, payments: payments.rows, refunds: refunds.rows, disputes: disputes.rows };
+    const wallet = await this.pool.query<{ taken: string; returned: string }>(
+      `SELECT COALESCE(-sum(cash_kobo + promo_kobo) FILTER (WHERE kind = 'ORDER_PAYMENT'), 0) AS taken,
+              COALESCE(sum(cash_kobo + promo_kobo) FILTER (WHERE kind IN ('ORDER_RETURN', 'CARD_REFUND')), 0) AS returned
+         FROM wallet_entries WHERE order_id = $1`,
+      [orderId],
+    );
+    return {
+      ...o.rows[0],
+      events: events.rows,
+      payments: payments.rows,
+      refunds: refunds.rows,
+      disputes: disputes.rows,
+      wallet: { paidKobo: Number(wallet.rows[0]!.taken), returnedKobo: Number(wallet.rows[0]!.returned) },
+    };
   }
 
   @Post("orders/:orderId/refund")
   @HttpCode(200)
   async refund(@Req() req: PfRequest, @Param("universityId") uid: string, @Param("orderId") oid: string, @Body() body: unknown) {
     const u = await this.ctx(req, uid, ["UNIVERSITY_ADMIN", "UNIVERSITY_FINANCE"]);
-    const { reason } = parse(Schemas.AdminRefund, body);
+    const { reason, refundTo } = parse(Schemas.AdminRefund, body);
     const r = await withTransaction(this.pool, (c) =>
-      transitionOrder(c, { orderId: parse(uuid, oid), to: "REFUND_PENDING", scope: { kind: "UNIVERSITY", universityId: u.universityId }, actorUserId: u.auth.userId, reason, requestId: req.id }),
+      transitionOrder(c, { orderId: parse(uuid, oid), to: "REFUND_PENDING", scope: { kind: "UNIVERSITY", universityId: u.universityId }, actorUserId: u.auth.userId, reason, requestId: req.id, refundTo }),
     );
     return { id: r.id, status: r.status };
   }
@@ -325,11 +412,11 @@ export class UniversityAdminController {
   @HttpCode(201)
   async retryRefund(@Req() req: PfRequest, @Param("universityId") uid: string, @Param("orderId") oid: string, @Body() body: unknown) {
     const u = await this.ctx(req, uid, ["UNIVERSITY_ADMIN", "UNIVERSITY_FINANCE"]);
-    const { reason } = parse(Schemas.AdminRefund, body);
+    const { reason, refundTo } = parse(Schemas.RetryRefund, body);
     const orderId = parse(uuid, oid);
     return withTransaction(this.pool, async (c) => {
-      const r = await retryFailedRefund(c, { orderId, universityId: u.universityId, reason, requestedBy: u.auth.userId });
-      await audit(c, { universityId: u.universityId, actorUserId: u.auth.userId, actorKind: "UNIVERSITY_ADMIN", action: "refund.retried", entityType: "order", entityId: orderId, requestId: req.id, ip: req.ip, details: { refundId: r.refundId, amountKobo: r.amountKobo } });
+      const r = await retryFailedRefund(c, { orderId, universityId: u.universityId, reason, requestedBy: u.auth.userId, destination: refundTo });
+      await audit(c, { universityId: u.universityId, actorUserId: u.auth.userId, actorKind: "UNIVERSITY_ADMIN", action: "refund.retried", entityType: "order", entityId: orderId, requestId: req.id, ip: req.ip, details: { refundId: r.refundId, amountKobo: r.amountKobo, destination: r.destination } });
       return r;
     });
   }
@@ -365,12 +452,18 @@ export class UniversityAdminController {
         [disputeId, input.status, input.note, final, u.auth.userId],
       );
       if (input.status === "RESOLVED_REFUND") {
-        const p = await c.query<{ id: string }>(`SELECT id FROM payments WHERE order_id = $1 AND status = 'SUCCEEDED'`, [d.rows[0].order_id]);
-        if (!p.rows[0]) throw Errors.rule("this order has no successful payment to refund", "NOT_PAID");
-        const r = await requestRefund(c, { orderId: d.rows[0].order_id, paymentId: p.rows[0].id, amountKobo: input.refundKobo!, reason: `Dispute resolution: ${input.note}`.slice(0, 1000), idempotencyKey: `dispute:${disputeId}`, requestedBy: u.auth.userId });
-        await enqueueRefund(c, r.refundId);
+        await c.query(`SELECT 1 FROM orders WHERE id = $1 FOR UPDATE`, [d.rows[0].order_id]);
+        const r = await refundOrder(c, {
+          orderId: d.rows[0].order_id,
+          amountKobo: input.refundKobo!,
+          destination: input.refundTo,
+          reason: `Dispute resolution: ${input.note}`.slice(0, 1000),
+          idempotencyKey: `dispute:${disputeId}`,
+          requestedBy: u.auth.userId,
+        });
+        if (r.toWalletKobo + r.toProviderKobo === 0 && !r.replayed) throw Errors.rule("this order has nothing left to refund", "NOT_PAID");
       }
-      await audit(c, { universityId: u.universityId, actorUserId: u.auth.userId, actorKind: "UNIVERSITY_ADMIN", action: "dispute.updated", entityType: "dispute", entityId: disputeId, requestId: req.id, details: { status: input.status, refundKobo: input.refundKobo } });
+      await audit(c, { universityId: u.universityId, actorUserId: u.auth.userId, actorKind: "UNIVERSITY_ADMIN", action: "dispute.updated", entityType: "dispute", entityId: disputeId, requestId: req.id, details: { status: input.status, refundKobo: input.refundKobo, refundTo: input.status === "RESOLVED_REFUND" ? input.refundTo : undefined } });
     });
     return { id: disputeId, status: input.status };
   }

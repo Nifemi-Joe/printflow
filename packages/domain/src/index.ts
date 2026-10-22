@@ -4,3 +4,4 @@ export * from "./queue-estimate.js";
 export * from "./phone.js";
 export * from "./power.js";
 export * from "./otp.js";
+export * from "./provider.js";

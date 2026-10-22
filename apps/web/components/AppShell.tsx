@@ -5,7 +5,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { canOpen, homeFor, mfaPending, useRequireSession } from "@/lib/session";
-import { Logo, Skeleton } from "./ui";
+import { BrandLoader } from "./Splash";
+import { Logo } from "./ui";
 
 interface NavItem {
     href: string;
@@ -90,7 +91,8 @@ export function AppShell({ children, title, items }: { children: ReactNode; titl
             <main id="main" className="shell-main" tabIndex={-1}>
                 {/* Nothing loads until two-step sign-in is done; the guard is sending them to /mfa. */}
                 {loading || !me || mfaPending(me) ? (
-                    <Skeleton lines={5} />
+                    // Not full-screen: the navigation around it stays usable and in place.
+                    <BrandLoader label={me && mfaPending(me) ? "Taking you to the security check…" : "Checking your account…"} />
                 ) : !canOpen(me, pathname) ? (
                     <div className="sheet" role="alert">
                         <h1 style={{ fontSize: "var(--t-xl)" }}>This page isn't part of your account</h1>

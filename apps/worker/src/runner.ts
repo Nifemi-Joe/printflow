@@ -1,18 +1,5 @@
 import { claimJobs, completeJob, enqueueJob, failJob, withTransaction, type JobKind, type JobRow } from "../../../packages/data/src/index.js";
-import {
-  documentGaveUp,
-  expireOrder,
-  PermanentJobError,
-  privacyErase,
-  privacyExport,
-  processDocument,
-  processRefund,
-  purgeRetention,
-  reconcilePayments,
-  sendNotification,
-  sweepExpiredOrders,
-  type WorkerDeps,
-} from "./handlers.js";
+import { documentGaveUp, expireOrder, PermanentJobError, privacyErase, privacyExport, processDocument, processRefund, purgeRetention, reconcilePayments, reverifyProviders, sendNotification, sweepExpiredOrders, type WorkerDeps } from "./handlers.js";
 
 type Handler = (d: WorkerDeps, job: JobRow) => Promise<unknown>;
 
@@ -23,6 +10,7 @@ export const HANDLERS: Partial<Record<JobKind, Handler>> = {
   NOTIFY: sendNotification,
   RETENTION_PURGE: (d, j) => purgeRetention(d, j),
   RECONCILE_PAYMENTS: (d) => reconcilePayments(d),
+  PROVIDER_REVERIFY: (d) => reverifyProviders(d).then(() => undefined),
   PRIVACY_EXPORT: privacyExport,
   PRIVACY_ERASE: privacyErase,
 };
@@ -56,10 +44,12 @@ export async function schedulePeriodic(d: WorkerDeps, now = new Date()): Promise
   const slot = (minutes: number) => new Date(Math.floor(now.getTime() / (minutes * 60_000)) * minutes * 60_000).toISOString();
   await enqueueJob(d.pool, "RETENTION_PURGE", {}, { dedupeKey: `purge:${slot(60)}` });
   await enqueueJob(d.pool, "RECONCILE_PAYMENTS", {}, { dedupeKey: `reconcile:${slot(15)}` });
+  await enqueueJob(d.pool, "PROVIDER_REVERIFY", {}, { dedupeKey: `reverify:${slot(360)}` });
   await sweepExpiredOrders(d);
   await d.pool.query(`DELETE FROM rate_limit_counters WHERE window_start < now() - interval '1 day'`);
   // SMS codes are useless once expired; keep a day for abuse investigations.
   await d.pool.query(`DELETE FROM phone_otps WHERE expires_at < now() - interval '1 day'`);
+  await d.pool.query(`DELETE FROM provider_email_codes WHERE expires_at < now() - interval '1 day'`);
   await d.pool.query(`DELETE FROM jobs WHERE status IN ('SUCCEEDED') AND finished_at < now() - interval '14 days'`);
 }
 

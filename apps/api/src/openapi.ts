@@ -67,8 +67,8 @@ export const ROUTE_DOCS: Record<string, RouteDoc> = {
   "POST /v1/orders": D("Orders", "student", "Confirm an order from an unexpired quote (price frozen)", { body: Schemas.CreateOrder, idempotent: true }),
   "GET /v1/orders": D("Orders", "student", "My orders (cursor pagination)", { query: Pagination() }),
   "GET /v1/orders/{orderId}": D("Orders", "student", "Order detail: status timeline, queue position, payments, refunds"),
-  "POST /v1/orders/{orderId}/cancel": D("Orders", "student", "Cancel (before the shop accepts; refunds if paid)", { body: Schemas.CancelOrder }),
-  "POST /v1/orders/{orderId}/payments": D("Payments", "student", "Start checkout for the frozen order total by card, bank transfer or USSD (503 when checkout is not configured)", { body: Schemas.StartPayment }),
+  "POST /v1/orders/{orderId}/cancel": D("Orders", "student", "Cancel (before the shop accepts). Paid money is refunded to the wallet (instant, default) or back to the card/bank (refundTo: PROVIDER); wallet money always returns to the wallet", { body: Schemas.CancelOrder }),
+  "POST /v1/orders/{orderId}/payments": D("Payments", "student", "Pay the frozen order total. useWallet applies the wallet balance first (print credit, then cash); if it covers everything the order is paid at once, otherwise checkout opens for the rest by card, bank transfer or USSD (503 when checkout is not configured)", { body: Schemas.StartPayment }),
   "POST /v1/orders/{orderId}/pickup-code": D("Orders", "student", "Generate a one-time pickup code (replaces any previous code)"),
   "GET /v1/orders/{orderId}/receipt": D("Orders", "student", "Receipt for a paid order"),
   "POST /v1/orders/{orderId}/disputes": D("Orders", "student", "Open a dispute", { body: Schemas.OpenDispute }),
@@ -81,7 +81,25 @@ export const ROUTE_DOCS: Record<string, RouteDoc> = {
 
   "POST /v1/webhooks/paystack": D("Payments", "signature", "Paystack webhook (HMAC-SHA512 of raw body in x-paystack-signature)"),
   "POST /v1/webhooks/test": D("Payments", "signature", "TEST provider webhook (non-production only)"),
-  "GET /v1/test-payments/{reference}": D("Payments", "student", "TEST checkout: payment details (non-production only)"),
+  "GET /v1/shops/{shopId}/verification": D("Provider", "shop", "What has been proven about who runs this shop, what is left to do, and the limits that apply", { requires: "shop owner" }),
+  "POST /v1/shops/{shopId}/verification/undertaking": D("Provider", "shop", "Accept the confidentiality undertaking (required before a student-run shop can take orders)", { body: Schemas.AcceptUndertaking, requires: "shop owner" }),
+  "POST /v1/shops/{shopId}/verification/email": D("Provider", "shop", "Email a 6-digit code to an address on the university's student-mail domain", { body: Schemas.ProviderEmail, requires: "shop owner" }),
+  "POST /v1/shops/{shopId}/verification/email/confirm": D("Provider", "shop", "Confirm the emailed code, which proves a university email address", { body: Schemas.PhoneCode, requires: "shop owner" }),
+  "POST /v1/shops/{shopId}/verification/matric": D("Provider", "shop", "Submit a matric number: matched against the university's roll where it uploaded one, otherwise sent to the university to confirm", { body: Schemas.ProviderMatric, requires: "shop owner" }),
+  "GET /v1/admin/universities/{universityId}/providers": D("University", "university", "Print shops and how far each one's identity has been proven; waiting=true shows only those needing a decision", { query: Schemas.ProviderListQuery }),
+  "GET /v1/admin/universities/{universityId}/providers/{shopId}": D("University", "university", "One provider: level, every check with its evidence, and undertakings accepted"),
+  "POST /v1/admin/universities/{universityId}/providers/{shopId}/decide": D("University", "university", "Pass or reject a check waiting on the university, or vouch for a provider outright", { body: Schemas.DecideProviderCheck }),
+  "POST /v1/admin/universities/{universityId}/providers/{shopId}/revoke": D("University", "university", "Withdraw a check, and optionally stop the shop trading", { body: Schemas.RevokeProviderCheck }),
+  "PUT /v1/admin/universities/{universityId}/providers/roll": D("University", "university", "Replace the student roll so matric numbers verify themselves; only the matric number and a keyed hash of each surname are stored", { body: Schemas.StudentRoll }),
+
+  "GET /v1/me/wallet": D("Wallet", "student", "My wallet: balance (cash and print credit), limits, pending top-ups and recent activity"),
+  "GET /v1/me/wallet/entries": D("Wallet", "student", "My wallet statement, newest first (page with before=<id>)", { query: Schemas.WalletStatementQuery }),
+  "POST /v1/me/wallet/topups": D("Wallet", "student", "Start a top-up by card, bank transfer or USSD; credited when the provider confirms it", { body: Schemas.WalletTopup }),
+  "GET /v1/me/wallet/topups/{reference}": D("Wallet", "student", "Status of one of my top-ups"),
+  "GET /v1/admin/universities/{universityId}/wallet/credit": D("University", "university", "Print credit granted to students, and how much is unspent"),
+  "POST /v1/admin/universities/{universityId}/wallet/credit": D("University", "university", "Give a student print credit (by email or matric number)", { body: Schemas.PromoCredit, idempotent: true, requires: "UNIVERSITY_ADMIN or UNIVERSITY_FINANCE" }),
+  "POST /v1/admin/universities/{universityId}/wallet/credit/revoke": D("University", "university", "Take back unspent print credit (cash is never touched)", { body: Schemas.PromoCredit, idempotent: true, requires: "UNIVERSITY_ADMIN or UNIVERSITY_FINANCE" }),
+  "GET /v1/test-payments/{reference}": D("Payments", "student", "TEST checkout: order payment or wallet top-up details (non-production only)"),
   "POST /v1/test-payments/{reference}/complete": D("Payments", "student", "TEST checkout: simulate the provider result via a signed webhook", { body: Schemas.CompleteTestPayment }),
   "GET /v1/files/{token}": D("Files", "signed-link", "Download an object with a short-lived signed token (LOCAL storage driver)"),
 
@@ -113,7 +131,7 @@ export const ROUTE_DOCS: Record<string, RouteDoc> = {
   "GET /v1/shops/{shopId}/reports/reconciliation": D("Shop", "shop", "Daily payments vs refunds vs collected value", { requires: "reports.view", query: Schemas.DateRange }),
 
   "GET /v1/admin/universities/{universityId}/overview": D("University", "university", "Dashboard overview"),
-  "PATCH /v1/admin/universities/{universityId}/settings": D("University", "university", "Pricing mode, quote lifetime, retention", { body: Schemas.UniversitySettings }),
+  "PATCH /v1/admin/universities/{universityId}/settings": D("University", "university", "Pricing mode, quote lifetime, retention, welcome credit, and the student-provider policy (whether students may run shops, their email domains, matric format, order cap and renewal period)", { body: Schemas.UniversitySettings }),
   "GET /v1/admin/universities/{universityId}/campuses": D("University", "university", "Campuses and departments"),
   "POST /v1/admin/universities/{universityId}/campuses": D("University", "university", "Add a campus", { body: Schemas.Campus }),
   "PATCH /v1/admin/universities/{universityId}/campuses/{campusId}": D("University", "university", "Update a campus", { body: Schemas.UpdateCampus }),
@@ -129,8 +147,8 @@ export const ROUTE_DOCS: Record<string, RouteDoc> = {
   "PUT /v1/admin/universities/{universityId}/price-bounds": D("University", "university", "Set agreed price ranges for merchant-controlled pricing", { body: Schemas.PriceBounds }),
   "GET /v1/admin/universities/{universityId}/orders": D("University", "university", "Monitor orders", { query: Schemas.OrderListQuery }),
   "GET /v1/admin/universities/{universityId}/orders/{orderId}": D("University", "university", "Order detail"),
-  "POST /v1/admin/universities/{universityId}/orders/{orderId}/refund": D("University", "university", "Refund an order", { body: Schemas.AdminRefund }),
-  "POST /v1/admin/universities/{universityId}/orders/{orderId}/refund-retry": D("University", "university", "Re-issue a refund the payment provider refused (remaining amount only)", { body: Schemas.AdminRefund }),
+  "POST /v1/admin/universities/{universityId}/orders/{orderId}/refund": D("University", "university", "Refund an order to the student's wallet (default, instant) or back to the card/bank", { body: Schemas.AdminRefund }),
+  "POST /v1/admin/universities/{universityId}/orders/{orderId}/refund-retry": D("University", "university", "Re-issue a refund the payment provider refused (remaining amount only), through the provider again or to the wallet", { body: Schemas.RetryRefund }),
   "GET /v1/admin/universities/{universityId}/disputes": D("University", "university", "Disputes"),
   "POST /v1/admin/universities/{universityId}/disputes/{disputeId}/resolve": D("University", "university", "Review or resolve a dispute", { body: Schemas.ResolveDispute }),
   "GET /v1/admin/universities/{universityId}/staff": D("University", "university", "University staff"),
@@ -194,9 +212,9 @@ export function buildOpenApi(): Record<string, unknown> {
     if (!doc) continue;
     const params = [...r.path.matchAll(/\{(\w+)\}/g)].map((m) => ({ name: m[1], in: "path", required: true, schema: { type: "string" } }));
     const security =
-      doc.auth === "public" || doc.auth === "signature" || doc.auth === "signed-link"
-        ? []
-        : [{ cookieSession: [], csrf: [] }, { bearer: [] }];
+        doc.auth === "public" || doc.auth === "signature" || doc.auth === "signed-link"
+            ? []
+            : [{ cookieSession: [], csrf: [] }, { bearer: [] }];
     const op: Record<string, unknown> = {
       tags: [doc.tag],
       summary: doc.summary,
@@ -205,8 +223,8 @@ export function buildOpenApi(): Record<string, unknown> {
         ["shop", "university", "platform"].includes(doc.auth) ? "Staff sessions must be MFA-verified." : "",
         doc.idempotent ? "Requires an `Idempotency-Key` header (16-128 chars); retries return the original result." : "",
       ]
-        .filter(Boolean)
-        .join(" "),
+          .filter(Boolean)
+          .join(" "),
       parameters: [
         ...params,
         ...(doc.query ? Object.entries((jsonSchema(doc.query) as { properties?: Record<string, unknown> }).properties ?? {}).map(([name, schema]) => ({ name, in: "query", required: false, schema })) : []),
@@ -243,7 +261,7 @@ export function buildOpenApi(): Record<string, unknown> {
       title: "PrintFlow API",
       version: "0.2.0",
       description:
-        "Digital printing for Nigerian universities. All money is integer kobo (1 NGN = 100 kobo). Prices are only ever computed by the server. Errors use { error: { code, message, details?, requestId } }.",
+          "Digital printing for Nigerian universities. All money is integer kobo (1 NGN = 100 kobo). Prices are only ever computed by the server. Errors use { error: { code, message, details?, requestId } }.",
     },
     servers: [{ url: "http://localhost:4000" }],
     components: {

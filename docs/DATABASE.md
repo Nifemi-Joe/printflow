@@ -23,6 +23,8 @@ Never edit an applied migration; add a new one.
 | `0004_payments_and_disputes.sql` | payments, provider webhook events, refunds, disputes, settlements, idempotency keys |
 | `0005_api_support.sql` | login lockout fields, preview/scan metadata, reprint link, additional job kinds, notifications, privacy requests, rate-limit counters |
 | `0006_phone_payments_power.sql` | phone verification, one-time SMS codes (`phone_otps`), requested and actual payment channel, shop power status |
+| `0007_wallet.sql` | student wallets, the wallet ledger, top-ups, refund destination, welcome credit, "paid in full" check on orders |
+| `0008_student_providers.sql` | shop kind and verification level, the verification trail, student roll, confidentiality undertakings, provider email codes, order limits for unverified providers |
 
 ## Tables by area
 
@@ -39,15 +41,24 @@ Never edit an applied migration; add a new one.
 - **Ordering:** `quotes`, `orders`, `order_status_transitions` (the legal state machine as
   data), `order_events` (timeline), `queue_entries`, `quality_checks`, `pickup_tokens`
   (HMAC of the code only).
-- **Money:** `payments`, `payment_webhook_events`, `refunds`, `disputes`, `settlements`.
+- **Money:** `payments`, `payment_webhook_events`, `refunds` (to the provider or the
+  wallet), `disputes`, `settlements`.
+- **Who runs a shop:** `provider_verifications` (one row per identity check, with its
+  evidence and renewal date), `provider_undertakings` (confidentiality undertakings
+  accepted, with the wording's hash), `provider_email_codes` (one-time codes to a
+  provider's student email, HMAC only), `university_student_roll` (matric number plus a
+  keyed hash of the surname; no names).
+- **Wallet:** `wallets` (cash and print-credit balances, one per student),
+  `wallet_entries` (append-only ledger; every balance change is one row),
+  `wallet_topups` (provider payments into the wallet).
 - **Platform:** `jobs` (the work queue), `idempotency_keys`, `notifications`,
   `privacy_requests`, `audit_log`, `rate_limit_counters` (UNLOGGED: counters are cheap to
   lose on a crash).
 
 ## Invariants enforced by the database
 
-These hold even if application code is wrong. Each has a test in `db/test/schema.test.ts`
-or `db/test/workflow.test.ts`.
+These hold even if application code is wrong. Each has a test in `db/test/schema.test.ts`,
+`db/test/workflow.test.ts` or `db/test/wallet.test.ts`.
 
 | Invariant | Mechanism |
 |---|---|
@@ -67,6 +78,19 @@ or `db/test/workflow.test.ts`.
 | An SMS code is used once, cannot be used after expiry, revocation or its attempt limit, and its hash and phone cannot change | `phone_otps_guard` |
 | A phone can only be marked verified while one is set | `users_phone_verified_needs_phone` |
 | An expected power return time only exists during an outage | `shops_power_back_only_when_out` |
+| Wallet balances change only through ledger entries, never go negative, and stay under a hard ceiling | `wallets_guard`, check constraints, `wallet_entries_check` / `wallet_entries_post` |
+| A ledger entry skipped by `ON CONFLICT DO NOTHING` never moves a balance | balance is updated in an `AFTER INSERT` trigger |
+| Each top-up, card refund, stray payment and order payment is credited at most once, and must match its source exactly | partial unique indexes; source checks in `wallet_entries_check` |
+| An order can only take from the wallet while awaiting payment, never more than its total; returns never exceed what it took, per bucket | `wallet_entries_check` |
+| A card/transfer payment equals the order total minus the wallet part | `payments_guard` |
+| An order becomes `PAID` only when provider money plus wallet money equals its total | `orders_paid_in_full` |
+| A refund to the wallet is recorded complete at once | `refunds_wallet_is_instant` |
+| A shop's verification level always equals what its passed checks say; it cannot be set directly | `provider_verifications_level`, `shops_provider_guard` |
+| A shop's kind is fixed at registration | `shops_provider_guard` |
+| What a verification check covers never changes, and a decided check can only lapse or be withdrawn | `provider_verifications_guard` |
+| At most one live check of each kind per shop | `provider_verifications_one_live` |
+| A student-run shop exists only where the university allows them, and takes no orders until the owner accepts the confidentiality undertaking | `shops_provider_guard` |
+| An order at a student-run shop below `MATRIC_VERIFIED` needs the student's acknowledgement and stays under the university's cap | `orders_insert_guard` |
 
 ## Money
 

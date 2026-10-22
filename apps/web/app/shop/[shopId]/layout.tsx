@@ -10,6 +10,7 @@ const PAGES: Array<{ path: string; label: string; needs: string }> = [
     { path: "", label: "Queue", needs: "orders.view" },
     { path: "/history", label: "Order history", needs: "orders.view" },
     { path: "/devices", label: "Printers", needs: "orders.view" },
+    { path: "/verification", label: "Verification", needs: "staff.manage" },
     { path: "/staff", label: "Staff", needs: "staff.manage" },
     { path: "/pricing", label: "Prices", needs: "pricing.manage" },
     { path: "/reports", label: "Reports", needs: "reports.view" },

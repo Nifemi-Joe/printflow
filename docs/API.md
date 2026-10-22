@@ -126,6 +126,74 @@ The method is passed to Paystack as `channels`, so the hosted checkout shows onl
 option. The method actually used is recorded from the provider's webhook and returned as
 `paidWith` on orders and receipts. An unoffered method answers `422 METHOD_UNAVAILABLE`.
 
+## Who runs a shop
+
+A print shop is either a registered business (`kind: "BUSINESS"`) or a student with their
+own printer (`kind: "STUDENT_RUN"`). Students are told which, and how far that person's
+identity has been proven, wherever they choose a shop or look at an order.
+
+Every shop carries a `trust` object: `kind`, `level`, a `badge` (`label`, `detail`, `tone`)
+and `limits`. The level is one of, weakest first:
+
+| Level | What was proven |
+|---|---|
+| `UNVERIFIED` | Nothing |
+| `EMAIL_VERIFIED` | A code sent to an address on the university's student-mail domain was entered |
+| `MATRIC_VERIFIED` | The matric number matched the university's roll, or an admin confirmed it |
+| `UNIVERSITY_APPROVED` | A university admin vetted the person or business in a recorded review |
+
+The level is derived by the database from the checks in `provider_verifications`, and
+cannot be set directly. Each check records who decided it, on what evidence, and when it
+must be renewed.
+
+Below `MATRIC_VERIFIED`, a student-run shop:
+- is left out of `GET /v1/universities/{id}/shops` unless `includeUnverified=true`
+  (the response's `hiddenUnverified` says how many were held back), except at
+  `EMAIL_VERIFIED`, which is listed;
+- is capped per order at the university's `studentProviderCapKobo`;
+- needs `acknowledgeUnverifiedProvider: true` on `POST /v1/orders`, else `422
+  PROVIDER_NOT_VERIFIED`. Over the cap is `422 PROVIDER_ORDER_CAP`. The database enforces
+  both again on insert.
+
+Quotes and order details carry a `provider` object with the same fields plus
+`needsAcknowledgement` and `orderCapKobo`, so a client never has to work the rules out.
+
+A student-run shop must also accept a versioned confidentiality undertaking before it can
+take any orders: `POST /v1/shops/{id}/verification/undertaking`. The wording's SHA-256 is
+stored with the acceptance.
+
+Universities control the whole scheme through `PATCH .../settings`:
+`studentProvidersAllowed`, `studentEmailDomains`, `matricPattern`,
+`studentProviderCapKobo` and `providerReverifyDays`. With student providers switched off,
+registering one is refused with `409 STUDENT_PROVIDERS_OFF`.
+
+## Wallet
+
+Each student has a spend-only wallet: money goes in by top-up, refund or university print
+credit, and out only to pay for printing. It cannot be withdrawn or transferred.
+
+- `GET /v1/me/wallet` returns the balance (`cashKobo`, `promoKobo`, `totalKobo`), limits,
+  pending top-ups and recent activity. `GET /v1/me/wallet/entries?before=<id>` pages back.
+- `POST /v1/me/wallet/topups` `{ "amountKobo": 200000, "method": "USSD" }` opens checkout,
+  like an order payment. The balance changes only when the provider confirms the payment
+  (webhook or reconciliation). Whole naira only; limits come from `WALLET_*` settings.
+- `POST /v1/orders/{id}/payments` `{ "useWallet": true }` applies the balance first (print
+  credit, then cash). If it covers the total, the order is paid at once and the answer is
+  `{ "paidFromWallet": true }` with no `checkoutUrl`. Otherwise checkout opens for the rest.
+  The wallet part stays set aside for that order until it is paid, cancelled or expires;
+  cancelled or expired unpaid orders give it back.
+- Refunds: whatever came from the wallet always goes back to the wallet, in the same
+  bucket (credit stays credit). Card, transfer or USSD money goes where `refundTo` says:
+  `WALLET` (default, instant) or `PROVIDER` (back to the card or bank; settles in days).
+  Accepted by `POST /orders/{id}/cancel`, the university's `/refund` and dispute resolution.
+- If a student pays an old checkout link after starting a newer one, that money is not
+  lost or kept: it is added to their wallet.
+- University staff give print credit with
+  `POST /v1/admin/universities/{id}/wallet/credit` `{ "email" | "matricNumber", "amountKobo", "note" }`
+  (Idempotency-Key required) and take back unspent credit with `.../wallet/credit/revoke`.
+  `welcomeCreditKobo` in university settings gives each new student credit once, when they
+  confirm a phone number.
+
 ## Shop power
 
 Staff with `orders.produce` report power with `PUT /v1/shops/{id}/power`
@@ -171,7 +239,7 @@ Limits are per fixed window, stored in PostgreSQL so they hold across API instan
 | System | `/health`, `/ready` | anyone (load balancers) |
 | Auth | `/auth/*`, `/me/*` | anyone / signed in |
 | Catalogue | `/universities`, `/shops/{id}/price-list` | anyone |
-| Documents, Orders, Payments, Notifications, Privacy | `/documents`, `/quotes`, `/orders`, … | students |
+| Documents, Orders, Payments, Wallet, Notifications, Privacy | `/documents`, `/quotes`, `/orders`, `/me/wallet`, … | students |
 | Shop | `/shops/{shopId}/*` | shop staff, by permission |
 | University | `/admin/universities/{universityId}/*` | university admins |
 | Platform | `/platform/*` | platform admins |

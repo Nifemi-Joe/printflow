@@ -3,32 +3,33 @@
  *
  * - Never caches the API (/api/*): documents, orders, prices and codes always come
  *   fresh from the server, and nothing personal is stored by the worker.
- * - Build assets (/_next/static, hashed) and icons: cache-first.
+ * - Build assets (/_next/static, hashed), icons and the brand mark: cache-first, so
+ *   the loader and the offline page still carry the logo with no connection.
  * - Pages: network-first; if offline, the last copy of that page shell, else /offline.
  *   Page shells contain no personal data (it is fetched by the page from /api).
  */
-const VERSION = "pf-v1";
+const VERSION = "pf-v2";
 const STATIC = `${VERSION}-static`;
 const PAGES = `${VERSION}-pages`;
 const OFFLINE_URL = "/offline";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches
-      .open(PAGES)
-      .then((c) => c.addAll([OFFLINE_URL]))
-      .then(() => caches.open(STATIC))
-      .then((c) => c.addAll(["/icons/icon-192.png", "/icons/icon-512.png"])),
+      caches
+          .open(PAGES)
+          .then((c) => c.addAll([OFFLINE_URL]))
+          .then(() => caches.open(STATIC))
+          .then((c) => c.addAll(["/icons/icon-192.png", "/icons/icon-512.png", "/brand/mark-128.png", "/brand/mark-512.png"])),
   );
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    (async () => {
-      const keys = await caches.keys();
-      await Promise.all(keys.filter((k) => !k.startsWith(VERSION)).map((k) => caches.delete(k)));
-      await self.clients.claim();
-    })(),
+      (async () => {
+        const keys = await caches.keys();
+        await Promise.all(keys.filter((k) => !k.startsWith(VERSION)).map((k) => caches.delete(k)));
+        await self.clients.claim();
+      })(),
   );
 });
 
@@ -44,7 +45,7 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/")) return; // always network, never cached
 
-  if (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/")) {
+  if (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/") || url.pathname.startsWith("/brand/")) {
     event.respondWith(cacheFirst(req));
     return;
   }

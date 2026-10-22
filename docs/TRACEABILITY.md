@@ -33,6 +33,8 @@ Test evidence abbreviations:
 - `sms-t` / `pay-t`: `packages/providers/test/sms.test.ts` / `payments.test.ts`
 - `sw-t`: `apps/web/test/sw.test.ts`
 - `e2e-ppp`: `apps/web/e2e/phone-pay-power.spec.ts`
+- `pv`: `apps/api/test/provider.test.ts`; `e2e-pv`: `apps/web/e2e/providers.spec.ts`
+- `wal`: `apps/api/test/wallet.test.ts`; `wal-db`: `db/test/wallet.test.ts`; `e2e-wal`: `apps/web/e2e/wallet.spec.ts`
 
 ## Product scope and technology
 
@@ -62,6 +64,27 @@ Test evidence abbreviations:
 | "Your prints are ready" texts | worker `sendNotification` | `phone` (only "ready" texted, only to verified phones) | VERIFIED against CAPTURE driver |
 | Bank transfer and USSD at checkout | `PAYMENT_METHODS`, `StartPayment`, Paystack `channels`, channel from webhook | `co-pw` (choice recorded, actual method from webhook, receipt label, unsigned event ignored, method switched off), `pay-t` (channels sent to fake Paystack), `e2e-ppp`, `m-smoke` | VERIFIED with the TEST provider; Paystack channels BLOCKED (no account) |
 | Shop power status ("Light on / Generator on / Light out, back at 2pm") | migration 0006, `PUT /shops/:id/power`, catalogue + queue, web `PowerControl`, mobile Power & printers | domain power tests, `co-pw` (validation, permissions, audit), `e2e-ppp` (staff sets outage, student sees it), `m-smoke` | VERIFIED |
+| Student wallet: spend-only balance, top up by card / transfer / USSD | migration 0007, `packages/data/src/wallet.ts`, `/me/wallet/*`, web Wallet page, mobile Wallet tab | `wal` (credited only on provider confirmation, once; failed then late success; limits; students only), `wal-db` (ledger-only balances, never negative under concurrency, append-only, duplicate inserts move nothing, hard ceiling), `e2e-wal`, `m-smoke` | VERIFIED with the TEST provider; Paystack top-ups BLOCKED (no account) |
+| Pay with the wallet, alone or split with card / transfer / USSD | `StartPayment.useWallet`, `applyWalletToOrder`, `orders_paid_in_full` | `wal` (full wallet payment skips checkout; split pays only the remainder; promo before cash; race-safe), `wal-db` (paid only when fully covered; card amount = total minus wallet), `e2e-wal`, `m-smoke` | VERIFIED |
+| Refunds to the wallet | `refundOrder` (wallet part always back to wallet; card part to wallet or provider), cancel / admin / dispute `refundTo` | `wal` (instant wallet refund, split refunds, expiry releases, partial dispute order), `wal-db` (bucket-exact, never more than taken, idempotent), `wf`, `sec`, `e2e-wal` | VERIFIED |
+| Promo / print credit and welcome credit | `/admin/universities/:id/wallet/credit`, `welcomeCreditKobo` on phone confirmation | `wal` (grant, revoke only unspent, idempotent, tenant-scoped, cap, audited, welcome once), `e2e-wal` | VERIFIED |
+| Top-up and low-balance texts | `notifyWallet` → `NOTIFY` job with `sms: true` | `wal` (texts to verified phone, CAPTURE driver) | VERIFIED against CAPTURE driver |
+| Money for an abandoned checkout is kept for the student | webhook credits `UNMATCHED_PAYMENT` to the wallet | `wal` | VERIFIED |
+
+## Students who print for others (October 2026)
+
+| Requirement | Where | Evidence | Status |
+|---|---|---|---|
+| A student with a printer can register as a provider, if their university allows it | migration 0008, `POST /v1/shops` with `kind`, web apply page | `pv` (refused until allowed; business unaffected), `e2e-pv` | VERIFIED |
+| Identity proven by a code to a university email address | `/shops/:id/verification/email`, `emailOnDomain` | `pv` (domain enforced, lookalike domain refused, wrong code counted, one address per shop, code single-use), `e2e-pv` | VERIFIED |
+| Identity proven by matric number, automatically against an uploaded roll or by university staff | `/shops/:id/verification/matric`, `matchRoll`, review screen | `pv` (format, roll match, wrong surname goes to a person, one matric per shop, admin pass and reject), `e2e-pv` | VERIFIED |
+| A student-run shop that cannot be verified still works, and is labelled | `trustBadge`, `providerLimits`, shop listing, order detail | `pv` (badge and limits by level), `e2e-pv` (student sees the warning) | VERIFIED |
+| Unverified providers are held back from the list, capped per order, and need the student's agreement | `providerLimits`, `createOrder`, `orders_insert_guard` | `pv` (both refusals), `pv` database-bypass test, `e2e-pv` (button disabled until agreed) | VERIFIED |
+| Confidentiality undertaking before any document reaches a student provider | `UNDERTAKING_TEXT`, `provider_undertakings`, `shops_provider_guard` | `pv` (cannot open without it; version and wording hash stored), `e2e-pv` | VERIFIED |
+| A university sees every provider, decides what is waiting, vouches, withdraws and suspends | `/admin/universities/:id/providers/*`, review screen | `pv` (decide, reject, revoke, suspend, tenant isolation, audit), `e2e-pv` | VERIFIED |
+| Verification lapses and must be renewed | `expireDueChecks`, `PROVIDER_REVERIFY` job | `pv` (level drops, owner told, idempotent) | VERIFIED |
+| The university controls the scheme: domains, matric format, cap, renewal period | `UniversitySettings`, settings screen | `pv` (settings round-trip, bad domain refused) | VERIFIED |
+| A student roll can be uploaded without PrintFlow storing names | `replaceRoll`, `surnameHash`, `STUDENT_ROLL_PEPPER` | `pv` (only matric and hash stored; upload audited by size) | VERIFIED |
 
 ## Website and design
 
@@ -164,7 +187,7 @@ Test evidence abbreviations:
 
 | Requirement | Evidence | Status |
 |---|---|---|
-| Unit, integration, API, e2e, security, accessibility | 308 vitest tests; 40 Playwright tests ×3 sizes with axe; mobile smoke (25 checks) | VERIFIED |
+| Unit, integration, API, e2e, security, accessibility | 376 vitest tests; Playwright tests ×3 sizes with axe; mobile smoke (30 checks) | VERIFIED |
 | Performance | `perf` load check (four hot paths, p95 budget) | IMPLEMENTED, NOT FULLY VERIFIED: sandbox hardware only, no production-scale data |
 | Full journey | `jour` (HTTP) and `e2e-journey` (UI) | VERIFIED |
 | Invalid files, expired quotes, payment failures, duplicate webhooks, failed printers, refunds, duplicate collection, queue concurrency, tenant isolation, unauthorised file access | `sec`, `wf` | VERIFIED |

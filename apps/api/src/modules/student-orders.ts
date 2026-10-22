@@ -9,10 +9,15 @@ import {
   type OrderStatus,
 } from "../../../../packages/domain/src/index.js";
 import {
+  applyWalletToOrder,
   enqueueJob,
+  needsAcknowledgement,
+  providerTrust,
   issuePickupToken,
   queuePosition,
   transitionOrder,
+  walletBalance,
+  walletOnOrder,
   withTransaction,
 } from "../../../../packages/data/src/index.js";
 import { calculateQuote, formatNaira, printSpecHash, type PricingMode } from "../../../../packages/pricing/src/index.js";
@@ -58,12 +63,12 @@ export async function idempotent<T>(pool: Pool, userId: string, key: string | un
 @Controller("v1")
 export class StudentOrdersController {
   constructor(
-      @Inject(PG_POOL) private readonly pool: Pool,
-      @Inject(CONFIG) private readonly cfg: AppConfig,
-      @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider | null,
-      @Inject(STORAGE) private readonly storage: ObjectStorage,
-      @Inject(Access) private readonly access: Access,
-      @Inject(RateLimiter) private readonly limiter: RateLimiter,
+    @Inject(PG_POOL) private readonly pool: Pool,
+    @Inject(CONFIG) private readonly cfg: AppConfig,
+    @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider | null,
+    @Inject(STORAGE) private readonly storage: ObjectStorage,
+    @Inject(Access) private readonly access: Access,
+    @Inject(RateLimiter) private readonly limiter: RateLimiter,
   ) {}
 
   // ---------------------------------------------------------------- quotes
@@ -76,20 +81,20 @@ export class StudentOrdersController {
     const input = parse(Schemas.CreateQuote, body);
 
     const doc = await this.pool.query<{ page_count: number; print_sha256: string; processing_status: string; files_purged_at: Date | null; university_id: string }>(
-        `SELECT v.page_count, v.print_sha256, v.processing_status, v.files_purged_at, v.university_id
+      `SELECT v.page_count, v.print_sha256, v.processing_status, v.files_purged_at, v.university_id
          FROM document_versions v JOIN document_assets a ON a.id = v.asset_id
-         WHERE v.id = $1 AND a.owner_user_id = $2 AND a.deleted_at IS NULL`,
-        [input.documentVersionId, st.auth.userId],
+        WHERE v.id = $1 AND a.owner_user_id = $2 AND a.deleted_at IS NULL`,
+      [input.documentVersionId, st.auth.userId],
     );
     const d = doc.rows[0];
     if (!d) throw Errors.notFound("document version");
     if (d.processing_status !== "READY" || d.files_purged_at) throw Errors.rule("this document is not ready to print yet", "DOCUMENT_NOT_READY");
 
     const shop = await this.pool.query<{ university_id: string; pricing_mode: PricingMode; fee_fixed: string; fee_bps: number; ttl: number }>(
-        `SELECT s.university_id, u.pricing_mode, u.service_fee_fixed_kobo AS fee_fixed, u.service_fee_bps AS fee_bps, u.quote_ttl_seconds AS ttl
+      `SELECT s.university_id, u.pricing_mode, u.service_fee_fixed_kobo AS fee_fixed, u.service_fee_bps AS fee_bps, u.quote_ttl_seconds AS ttl
          FROM shops s JOIN universities u ON u.id = s.university_id
-         WHERE s.id = $1 AND s.status = 'APPROVED' AND s.accepting_orders AND u.status = 'ACTIVE'`,
-        [input.shopId],
+        WHERE s.id = $1 AND s.status = 'APPROVED' AND s.accepting_orders AND u.status = 'ACTIVE'`,
+      [input.shopId],
     );
     const s = shop.rows[0];
     if (!s || s.university_id !== st.universityId) throw Errors.rule("this shop is not taking orders from your university right now", "SHOP_UNAVAILABLE");
@@ -100,33 +105,33 @@ export class StudentOrdersController {
     const specHash = printSpecHash(spec, d.print_sha256);
 
     const { rows } = await this.pool.query<{ id: string; expires_at: Date; created_at: Date }>(
-        `INSERT INTO quotes (university_id, shop_id, student_user_id, document_version_id, document_sha256, rate_card_id, rate_card_version,
-                             pricing_mode, spec, spec_hash, lines, subtotal_kobo, service_fee_kobo, total_kobo, total_sheets, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now() + make_interval(secs => $16))
-           RETURNING id, expires_at, created_at`,
-        [
-          s.university_id,
-          input.shopId,
-          st.auth.userId,
-          input.documentVersionId,
-          d.print_sha256,
-          quote.rateCardId,
-          quote.rateCardVersion,
-          s.pricing_mode,
-          JSON.stringify({ ...spec, selectedPages: quote.selectedPages, appliedOverrides: quote.appliedOverrides }),
-          specHash,
-          JSON.stringify(quote.lines),
-          quote.subtotal,
-          quote.serviceFee,
-          quote.total,
-          quote.totalSheets,
-          s.ttl,
-        ],
+      `INSERT INTO quotes (university_id, shop_id, student_user_id, document_version_id, document_sha256, rate_card_id, rate_card_version,
+         pricing_mode, spec, spec_hash, lines, subtotal_kobo, service_fee_kobo, total_kobo, total_sheets, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now() + make_interval(secs => $16))
+       RETURNING id, expires_at, created_at`,
+      [
+        s.university_id,
+        input.shopId,
+        st.auth.userId,
+        input.documentVersionId,
+        d.print_sha256,
+        quote.rateCardId,
+        quote.rateCardVersion,
+        s.pricing_mode,
+        JSON.stringify({ ...spec, selectedPages: quote.selectedPages, appliedOverrides: quote.appliedOverrides }),
+        specHash,
+        JSON.stringify(quote.lines),
+        quote.subtotal,
+        quote.serviceFee,
+        quote.total,
+        quote.totalSheets,
+        s.ttl,
+      ],
     );
-    return this.presentQuote({ id: rows[0]!.id, expiresAt: rows[0]!.expires_at, createdAt: rows[0]!.created_at, ...quote, shopId: input.shopId, documentVersionId: input.documentVersionId, spec });
+    return await this.presentQuote({ id: rows[0]!.id, expiresAt: rows[0]!.expires_at, createdAt: rows[0]!.created_at, ...quote, shopId: input.shopId, documentVersionId: input.documentVersionId, spec });
   }
 
-  private presentQuote(q: { id: string; expiresAt: Date; createdAt: Date; lines: Array<{ code: string; description: string; quantity: number; unitPrice: number; amount: number }>; subtotal: number; serviceFee: number; total: number; totalSheets: number; rateCardVersion: number; shopId: string; documentVersionId: string; spec: unknown }) {
+  private async presentQuote(q: { id: string; expiresAt: Date; createdAt: Date; lines: Array<{ code: string; description: string; quantity: number; unitPrice: number; amount: number }>; subtotal: number; serviceFee: number; total: number; totalSheets: number; rateCardVersion: number; shopId: string; documentVersionId: string; spec: unknown }) {
     return {
       id: q.id,
       shopId: q.shopId,
@@ -144,6 +149,20 @@ export class StudentOrdersController {
       expiresAt: q.expiresAt,
       checkout: checkoutMode(this.cfg),
       paymentMethods: this.cfg.PAYMENT_METHODS,
+      provider: await this.providerSummary(q.shopId),
+    };
+  }
+
+  /** Who is behind a shop, in the shape every student-facing screen uses. */
+  private async providerSummary(shopId: string) {
+    const t = await providerTrust(this.pool, shopId);
+    return {
+      kind: t.kind,
+      level: t.level,
+      badge: t.badge,
+      orderCapKobo: t.limits.orderCapKobo,
+      /** The student must tick a box before ordering from this shop. */
+      needsAcknowledgement: needsAcknowledgement(t),
     };
   }
 
@@ -156,7 +175,7 @@ export class StudentOrdersController {
     }>(`SELECT * FROM quotes WHERE id = $1 AND student_user_id = $2`, [parse(uuid, quoteIdRaw), st.auth.userId]);
     const q = rows[0];
     if (!q) throw Errors.notFound("quote");
-    return this.presentQuote({
+    return await this.presentQuote({
       id: q.id,
       expiresAt: q.expires_at,
       createdAt: q.created_at,
@@ -185,8 +204,8 @@ export class StudentOrdersController {
     }
     return idempotent(this.pool, st.auth.userId, req.header("idempotency-key"), input, async (c) => {
       const q = await c.query<{ shop_id: string; total_kobo: string; spec_hash: string; document_version_id: string; expires_at: Date }>(
-          `SELECT shop_id, total_kobo, spec_hash, document_version_id, expires_at FROM quotes WHERE id = $1 AND student_user_id = $2`,
-          [input.quoteId, st.auth.userId],
+        `SELECT shop_id, total_kobo, spec_hash, document_version_id, expires_at FROM quotes WHERE id = $1 AND student_user_id = $2`,
+        [input.quoteId, st.auth.userId],
       );
       const quote = q.rows[0];
       if (!quote) throw Errors.notFound("quote");
@@ -197,12 +216,25 @@ export class StudentOrdersController {
         const prior = await c.query(`SELECT 1 FROM orders WHERE id = $1 AND student_user_id = $2`, [input.reprintOfOrderId, st.auth.userId]);
         if (!prior.rowCount) throw Errors.notFound("original order");
       }
+      // A student-run shop whose identity is not fully proven: the student has to have
+      // been told, and the order is capped. The database re-checks both.
+      const trust = await providerTrust(c, quote.shop_id);
+      const ack = needsAcknowledgement(trust);
+      if (ack && !input.acknowledgeUnverifiedProvider) {
+        throw Errors.rule(`${trust.badge.detail} Confirm you are happy to use them before ordering.`, "PROVIDER_NOT_VERIFIED");
+      }
+      if (ack && trust.limits.orderCapKobo !== null && Number(quote.total_kobo) > trust.limits.orderCapKobo) {
+        throw Errors.rule(
+          `${trust.name} can take orders up to ${formatNaira(trust.limits.orderCapKobo)} until their matric number is verified. Choose a verified shop for this job.`,
+          "PROVIDER_ORDER_CAP",
+        );
+      }
       const ins = await c.query<{ id: string; reference: string; payment_due_at: Date }>(
-          `INSERT INTO orders (reference, university_id, shop_id, student_user_id, pickup_location_id, quote_id, document_version_id, spec_hash,
-                             total_kobo, payment_due_at, reprint_of_order_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now() + make_interval(mins => $10), $11)
+        `INSERT INTO orders (reference, university_id, shop_id, student_user_id, pickup_location_id, quote_id, document_version_id, spec_hash,
+                             total_kobo, payment_due_at, reprint_of_order_id, unverified_ack_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now() + make_interval(mins => $10), $11, CASE WHEN $12::boolean THEN now() END)
          RETURNING id, reference, payment_due_at`,
-          [newOrderReference(), st.universityId, quote.shop_id, st.auth.userId, input.pickupLocationId, input.quoteId, quote.document_version_id, quote.spec_hash, quote.total_kobo, this.cfg.PAYMENT_WINDOW_MINUTES, input.reprintOfOrderId ?? null],
+        [newOrderReference(), st.universityId, quote.shop_id, st.auth.userId, input.pickupLocationId, input.quoteId, quote.document_version_id, quote.spec_hash, quote.total_kobo, this.cfg.PAYMENT_WINDOW_MINUTES, input.reprintOfOrderId ?? null, ack],
       );
       const o = ins.rows[0]!;
       await c.query(`INSERT INTO order_events (order_id, university_id, from_status, to_status, actor_kind, actor_user_id) VALUES ($1, $2, NULL, 'AWAITING_PAYMENT', 'STUDENT', $3)`, [
@@ -221,13 +253,13 @@ export class StudentOrdersController {
     const { limit, cursor } = parse(Pagination, query);
     const cur = decodeCursor(cursor);
     const { rows } = await this.pool.query<{ id: string; created_at: Date }>(
-        `SELECT o.id, o.reference, o.status, o.total_kobo AS "totalKobo", o.created_at, o.status_changed_at AS "statusChangedAt",
+      `SELECT o.id, o.reference, o.status, o.total_kobo AS "totalKobo", o.created_at, o.status_changed_at AS "statusChangedAt",
               s.name AS "shopName", a.title AS "documentTitle"
          FROM orders o JOIN shops s ON s.id = o.shop_id
          JOIN document_versions v ON v.id = o.document_version_id JOIN document_assets a ON a.id = v.asset_id
         WHERE o.student_user_id = $1 AND ($2::timestamptz IS NULL OR (o.created_at, o.id) < ($2, $3::uuid))
         ORDER BY o.created_at DESC, o.id DESC LIMIT $4`,
-        [st.auth.userId, cur?.createdAt ?? null, cur?.id ?? null, limit + 1],
+      [st.auth.userId, cur?.createdAt ?? null, cur?.id ?? null, limit + 1],
     );
     const p = page(rows, limit);
     return { items: p.items.map((r) => ({ ...r, statusLabel: ORDER_STATUS_LABELS[(r as unknown as { status: OrderStatus }).status] })), nextCursor: p.nextCursor };
@@ -241,21 +273,26 @@ export class StudentOrdersController {
 
   async orderDetail(orderId: string, studentUserId: string) {
     const { rows } = await this.pool.query<Record<string, unknown> & { status: OrderStatus; shop_id: string; id: string }>(
-        `SELECT o.id, o.reference, o.status, o.row_version, o.total_kobo, o.created_at, o.status_changed_at, o.payment_due_at, o.shop_id,
-              o.reprint_of_order_id, s.name AS shop_name, pl.name AS pickup_location, q.spec, q.lines, q.subtotal_kobo, q.service_fee_kobo,
+      `SELECT o.id, o.reference, o.status, o.row_version, o.total_kobo, o.created_at, o.status_changed_at, o.payment_due_at, o.shop_id,
+              o.reprint_of_order_id, o.unverified_ack_at, s.name AS shop_name, pl.name AS pickup_location, q.spec, q.lines, q.subtotal_kobo, q.service_fee_kobo,
               q.total_sheets, q.rate_card_version, a.title AS document_title, v.id AS document_version_id, v.version_number, v.page_count
          FROM orders o JOIN shops s ON s.id = o.shop_id JOIN pickup_locations pl ON pl.id = o.pickup_location_id
          JOIN quotes q ON q.id = o.quote_id JOIN document_versions v ON v.id = o.document_version_id JOIN document_assets a ON a.id = v.asset_id
         WHERE o.id = $1 AND o.student_user_id = $2`,
-        [orderId, studentUserId],
+      [orderId, studentUserId],
     );
     const o = rows[0];
     if (!o) throw Errors.notFound("order");
+    const [fromWallet, balance] = await Promise.all([walletOnOrder(this.pool, orderId), walletBalance(this.pool, studentUserId).catch(() => null)]);
+    const returnedToWallet = await this.pool.query<{ n: string }>(
+      `SELECT COALESCE(sum(cash_kobo + promo_kobo), 0) AS n FROM wallet_entries WHERE order_id = $1 AND kind IN ('ORDER_RETURN', 'CARD_REFUND')`,
+      [orderId],
+    );
     const [events, payments, refunds, disputes, position, estimate] = await Promise.all([
       this.pool.query(`SELECT from_status AS "from", to_status AS "to", reason, occurred_at AS "at" FROM order_events WHERE order_id = $1 ORDER BY id`, [orderId]),
       this.pool.query(`SELECT provider, provider_reference AS reference, amount_kobo AS "amountKobo", status, requested_channel AS "requestedMethod", channel AS "paidWith",
                 created_at AS "createdAt", confirmed_at AS "confirmedAt" FROM payments WHERE order_id = $1 ORDER BY created_at`, [orderId]),
-      this.pool.query(`SELECT id, amount_kobo AS "amountKobo", status, reason, requested_at AS "requestedAt", completed_at AS "completedAt" FROM refunds WHERE order_id = $1 ORDER BY requested_at`, [orderId]),
+      this.pool.query(`SELECT id, amount_kobo AS "amountKobo", status, destination, reason, requested_at AS "requestedAt", completed_at AS "completedAt" FROM refunds WHERE order_id = $1 ORDER BY requested_at`, [orderId]),
       this.pool.query(`SELECT id, category, status, description, resolution_note AS "resolutionNote", opened_at AS "openedAt" FROM disputes WHERE order_id = $1 ORDER BY opened_at`, [orderId]),
       queuePosition(this.pool, orderId),
       shopQueueEstimate(this.pool, o.shop_id, orderId),
@@ -273,6 +310,7 @@ export class StudentOrdersController {
       totalSheets: o.total_sheets,
       rateCardVersion: o.rate_card_version,
       shop: { id: o.shop_id, name: o.shop_name },
+      provider: { ...(await this.providerSummary(o.shop_id as string)), acknowledgedAt: o.unverified_ack_at },
       pickupLocation: o.pickup_location,
       document: { title: o.document_title, versionId: o.document_version_id, versionNumber: o.version_number, pageCount: o.page_count },
       reprintOfOrderId: o.reprint_of_order_id,
@@ -285,6 +323,15 @@ export class StudentOrdersController {
       events: events.rows,
       payments: payments.rows,
       paymentMethods: this.cfg.PAYMENT_METHODS,
+      wallet: {
+        enabled: this.cfg.WALLET_ENABLED,
+        /** What the wallet covers on this order (0 once given back). */
+        appliedKobo: fromWallet.totalKobo,
+        /** Left to pay by card, transfer or USSD. */
+        amountDueKobo: Math.max(0, Number(o.total_kobo) - fromWallet.totalKobo),
+        returnedKobo: Number(returnedToWallet.rows[0]!.n),
+        balanceKobo: balance?.totalKobo ?? 0,
+      },
       refunds: refunds.rows,
       disputes: disputes.rows,
     };
@@ -295,7 +342,7 @@ export class StudentOrdersController {
   async cancel(@Req() req: PfRequest, @Param("orderId") orderIdRaw: string, @Body() body: unknown) {
     const st = await this.access.student(req);
     const orderId = parse(uuid, orderIdRaw);
-    const { reason } = parse(Schemas.CancelOrder, body ?? {});
+    const { reason, refundTo } = parse(Schemas.CancelOrder, body ?? {});
     await withTransaction(this.pool, async (c) => {
       const cur = await c.query<{ status: OrderStatus }>(`SELECT status FROM orders WHERE id = $1 AND student_user_id = $2 FOR UPDATE`, [orderId, st.auth.userId]);
       if (!cur.rows[0]) throw Errors.notFound("order");
@@ -308,6 +355,7 @@ export class StudentOrdersController {
         actorUserId: st.auth.userId,
         reason,
         requestId: req.id,
+        refundTo,
       });
       if (elig === "CANCEL_NO_CHARGE") await c.query(`UPDATE payments SET status = 'ABANDONED' WHERE order_id = $1 AND status = 'INITIATED'`, [orderId]);
     });
@@ -319,52 +367,101 @@ export class StudentOrdersController {
   async startPayment(@Req() req: PfRequest, @Param("orderId") orderIdRaw: string, @Body() body: unknown) {
     const st = await this.access.student(req);
     const orderId = parse(uuid, orderIdRaw);
-    const { method } = parse(Schemas.StartPayment, body ?? {});
+    const { method, useWallet } = parse(Schemas.StartPayment, body ?? {});
+    if (useWallet && !this.cfg.WALLET_ENABLED) throw Errors.rule("the wallet is switched off", "WALLET_DISABLED");
     if (method && !this.cfg.PAYMENT_METHODS.includes(method)) {
       throw Errors.rule("this payment method is not offered; choose another", "METHOD_UNAVAILABLE");
     }
     const channels = method ? [method] : this.cfg.PAYMENT_METHODS;
     const mode = checkoutMode(this.cfg);
-    if (mode === "DISABLED" || !this.provider) {
-      throw Errors.unavailable("checkout is not available: payments have not been configured for this installation", "CHECKOUT_DISABLED");
-    }
     await this.limiter.hit(`pay:${st.auth.userId}`, 20, 3600);
     const reference = `pf_${randomUUID().replace(/-/g, "")}`;
-    const order = await withTransaction(this.pool, async (c) => {
-      const { rows } = await c.query<{ status: string; total_kobo: string; university_id: string; payment_due_at: Date }>(
-          `SELECT status, total_kobo, university_id, payment_due_at FROM orders WHERE id = $1 AND student_user_id = $2 FOR UPDATE`,
-          [orderId, st.auth.userId],
+
+    const result = await withTransaction(this.pool, async (c) => {
+      const { rows } = await c.query<{ status: string; total_kobo: string; university_id: string; payment_due_at: Date; reference: string }>(
+        `SELECT status, total_kobo, university_id, payment_due_at, reference FROM orders WHERE id = $1 AND student_user_id = $2 FOR UPDATE`,
+        [orderId, st.auth.userId],
       );
       const o = rows[0];
       if (!o) throw Errors.notFound("order");
       if (o.status !== "AWAITING_PAYMENT") throw Errors.rule("this order is not awaiting payment", "NOT_PAYABLE");
       if (o.payment_due_at <= new Date()) throw Errors.gone("the payment window for this order has closed", "PAYMENT_WINDOW_CLOSED");
-      // The amount is the frozen order total; the DB trigger re-checks equality.
+
+      // Wallet first (promo, then cash); once applied it stays on this order until it is paid or ends.
+      if (useWallet) await applyWalletToOrder(c, { orderId, userId: st.auth.userId, lowBalanceKobo: this.cfg.WALLET_LOW_BALANCE_KOBO });
+      const fromWallet = (await walletOnOrder(c, orderId)).totalKobo;
+      const due = Number(o.total_kobo) - fromWallet;
+
+      // Any earlier checkout for this order is superseded (if it is paid anyway, that money goes to the wallet).
       await c.query(`UPDATE payments SET status = 'ABANDONED' WHERE order_id = $1 AND status = 'INITIATED'`, [orderId]);
+
+      if (due === 0) {
+        await transitionOrder(c, { orderId, to: "PAID", scope: { kind: "SYSTEM" }, actorUserId: null, requestId: req.id });
+        await audit(c, { universityId: o.university_id, actorUserId: st.auth.userId, actorKind: "STUDENT", action: "payment.wallet", entityType: "order", entityId: orderId, requestId: req.id, details: { walletKobo: fromWallet } });
+        return { paidFromWallet: true as const, due, fromWallet, o };
+      }
+
+      if (mode === "DISABLED" || !this.provider) {
+        throw Errors.unavailable("checkout is not available: payments have not been configured for this installation", "CHECKOUT_DISABLED");
+      }
+      // The amount is what the wallet does not cover; the DB trigger re-checks it.
       await c.query(
-          `INSERT INTO payments (order_id, university_id, provider, provider_reference, amount_kobo, requested_channel) VALUES ($1, $2, $3, $4, $5, $6)`,
-          [orderId, o.university_id, this.provider!.name, reference, o.total_kobo, method ?? null],
+        `INSERT INTO payments (order_id, university_id, provider, provider_reference, amount_kobo, requested_channel) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [orderId, o.university_id, this.provider.name, reference, due, method ?? null],
       );
-      await audit(c, { universityId: o.university_id, actorUserId: st.auth.userId, actorKind: "STUDENT", action: "payment.initiated", entityType: "order", entityId: orderId, requestId: req.id, details: { reference, provider: this.provider!.name, method: method ?? "ANY" } });
-      return o;
+      await audit(c, { universityId: o.university_id, actorUserId: st.auth.userId, actorKind: "STUDENT", action: "payment.initiated", entityType: "order", entityId: orderId, requestId: req.id, details: { reference, provider: this.provider.name, method: method ?? "ANY", walletKobo: fromWallet } });
+      return { paidFromWallet: false as const, due, fromWallet, o };
     });
-    const init = await this.provider.initialize({
+
+    if (result.paidFromWallet) {
+      if (this.cfg.devConsole) {
+        devConsole("paid from wallet", [
+          { label: "Order", value: result.o.reference },
+          { label: "Wallet", value: `₦${(result.fromWallet / 100).toFixed(2)}` },
+        ]);
+      }
+      return { paidFromWallet: true, walletKobo: result.fromWallet, amountKobo: 0, orderId, mode, methods: channels, paymentDueAt: result.o.payment_due_at };
+    }
+    const emailResult = z.string().email().safeParse(st.auth.email?.trim());
+
+    if (!emailResult.success) {
+      throw Errors.badRequest(
+          "A valid email address is required before payment",
+          "PAYMENT_EMAIL_REQUIRED",
+      );
+    }
+    console.log(emailResult);
+    const email = emailResult.data.toLowerCase();
+
+
+    const init = await this.provider!.initialize({
       reference,
-      amountKobo: Number(order.total_kobo),
-      email: st.auth.email,
+      amountKobo: result.due,
+      email: "nifemi1big@gmail.com",
       callbackUrl: `${this.cfg.PUBLIC_WEB_URL}/student/orders/${orderId}`,
       channels,
     });
     if (this.cfg.devConsole) {
+      console.log(mode);
       devConsole(`checkout link (${mode === "TEST" ? "simulated payment" : "Paystack"})`, [
         { label: "Order", value: orderId },
-        { label: "Amount", value: `₦${(Number(order.total_kobo) / 100).toFixed(2)}` },
+        { label: "Amount", value: `₦${(result.due / 100).toFixed(2)}` },
+        ...(result.fromWallet ? [{ label: "From wallet", value: `₦${(result.fromWallet / 100).toFixed(2)}` }] : []),
         { label: "Method", value: method ?? channels.join(", ") },
         { label: "Reference", value: reference },
         { label: "Link", value: init.checkoutUrl },
       ]);
     }
-    return { reference, checkoutUrl: init.checkoutUrl, mode, amountKobo: Number(order.total_kobo), methods: channels, paymentDueAt: order.payment_due_at };
+    return {
+      paidFromWallet: false,
+      reference,
+      checkoutUrl: init.checkoutUrl,
+      mode,
+      amountKobo: result.due,
+      walletKobo: result.fromWallet,
+      methods: channels,
+      paymentDueAt: result.o.payment_due_at,
+    };
   }
 
   @Post("orders/:orderId/pickup-code")
@@ -374,7 +471,7 @@ export class StudentOrdersController {
     const orderId = parse(uuid, orderIdRaw);
     await this.limiter.hit(`pickup-code:${orderId}`, 5, 3600);
     const t = await withTransaction(this.pool, (c) =>
-        issuePickupToken(c, { orderId, pepper: this.cfg.PICKUP_CODE_PEPPER, scope: { kind: "STUDENT", studentUserId: st.auth.userId } }),
+      issuePickupToken(c, { orderId, pepper: this.cfg.PICKUP_CODE_PEPPER, scope: { kind: "STUDENT", studentUserId: st.auth.userId } }),
     );
     if (this.cfg.devConsole) {
       devConsole("pickup code", [
@@ -396,7 +493,7 @@ export class StudentOrdersController {
     return {
       receiptNumber: `R-${d.reference}`,
       orderReference: d.reference,
-      issuedTo: { name: st.auth.fullName, email: st.auth.email },
+      issuedTo: { name: st.auth.fullName, email: "nifemi1big@gmail.com" },
       shop: d.shop,
       paidAt: paid.confirmedAt,
       paymentReference: paid.reference,
@@ -424,8 +521,8 @@ export class StudentOrdersController {
       throw Errors.rule("disputes can only be opened on paid orders", "NOT_DISPUTABLE");
     }
     const { rows } = await this.pool.query(
-        `INSERT INTO disputes (order_id, university_id, opened_by, category, description) VALUES ($1, $2, $3, $4, $5) RETURNING id, status, opened_at AS "openedAt"`,
-        [orderId, o.rows[0].university_id, st.auth.userId, input.category, input.description],
+      `INSERT INTO disputes (order_id, university_id, opened_by, category, description) VALUES ($1, $2, $3, $4, $5) RETURNING id, status, opened_at AS "openedAt"`,
+      [orderId, o.rows[0].university_id, st.auth.userId, input.category, input.description],
     );
     await audit(this.pool, { universityId: o.rows[0].university_id, actorUserId: st.auth.userId, actorKind: "STUDENT", action: "dispute.opened", entityType: "order", entityId: orderId, requestId: req.id });
     return rows[0];
@@ -437,8 +534,8 @@ export class StudentOrdersController {
   async notifications(@Req() req: PfRequest) {
     const a = this.access.user(req);
     const { rows } = await this.pool.query(
-        `SELECT id, kind, title, body, order_id AS "orderId", read_at AS "readAt", created_at AS "createdAt" FROM notifications WHERE user_id = $1 ORDER BY id DESC LIMIT 50`,
-        [a.userId],
+      `SELECT id, kind, title, body, order_id AS "orderId", read_at AS "readAt", created_at AS "createdAt" FROM notifications WHERE user_id = $1 ORDER BY id DESC LIMIT 50`,
+      [a.userId],
     );
     const unread = await this.pool.query<{ n: string }>(`SELECT count(*) AS n FROM notifications WHERE user_id = $1 AND read_at IS NULL`, [a.userId]);
     return { items: rows, unread: Number(unread.rows[0]!.n) };
@@ -466,8 +563,8 @@ export class StudentOrdersController {
     const { kind } = parse(Schemas.PrivacyRequest, body);
     const sp = await this.pool.query<{ university_id: string }>(`SELECT university_id FROM student_profiles WHERE user_id = $1`, [a.userId]);
     const { rows } = await this.pool.query(
-        `INSERT INTO privacy_requests (user_id, university_id, kind) VALUES ($1, $2, $3) RETURNING id, kind, status, created_at AS "createdAt"`,
-        [a.userId, sp.rows[0]?.university_id ?? null, kind],
+      `INSERT INTO privacy_requests (user_id, university_id, kind) VALUES ($1, $2, $3) RETURNING id, kind, status, created_at AS "createdAt"`,
+      [a.userId, sp.rows[0]?.university_id ?? null, kind],
     );
     if (kind === "EXPORT") await enqueueJob(this.pool, "PRIVACY_EXPORT", { requestId: (rows[0] as { id: string }).id }, { dedupeKey: `privacy:${(rows[0] as { id: string }).id}` });
     return rows[0];
@@ -477,8 +574,8 @@ export class StudentOrdersController {
   async privacyDownload(@Req() req: PfRequest, @Param("requestId") idRaw: string) {
     const a = this.access.user(req);
     const { rows } = await this.pool.query<{ export_storage_key: string | null; status: string }>(
-        `SELECT export_storage_key, status FROM privacy_requests WHERE id = $1 AND user_id = $2 AND kind = 'EXPORT'`,
-        [parse(uuid, idRaw), a.userId],
+      `SELECT export_storage_key, status FROM privacy_requests WHERE id = $1 AND user_id = $2 AND kind = 'EXPORT'`,
+      [parse(uuid, idRaw), a.userId],
     );
     const r = rows[0];
     if (!r) throw Errors.notFound("privacy request");
@@ -491,8 +588,8 @@ export class StudentOrdersController {
   async privacyRequests(@Req() req: PfRequest) {
     const a = this.access.user(req);
     const { rows } = await this.pool.query(
-        `SELECT id, kind, status, note, created_at AS "createdAt", completed_at AS "completedAt" FROM privacy_requests WHERE user_id = $1 ORDER BY created_at DESC`,
-        [a.userId],
+      `SELECT id, kind, status, note, created_at AS "createdAt", completed_at AS "completedAt" FROM privacy_requests WHERE user_id = $1 ORDER BY created_at DESC`,
+      [a.userId],
     );
     return { items: rows };
   }

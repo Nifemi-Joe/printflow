@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Pool } from "pg";
 import type { Logger } from "pino";
-import { applyPaymentEvent, enqueueJob, transitionOrder, withTransaction, type JobRow } from "../../../packages/data/src/index.js";
+import { applyPaymentEvent, enqueueJob, expireDueChecks, transitionOrder, withTransaction, type JobRow } from "../../../packages/data/src/index.js";
 import { DocumentRejectedError, prepareDocument, type ProcessingTools, type Scanner } from "../../../packages/documents/src/index.js";
 import type { Mailer, PaymentProvider, SmsSender } from "../../../packages/providers/src/index.js";
 import { objectKeys, type ObjectStorage } from "../../../packages/storage/src/index.js";
@@ -45,9 +45,9 @@ async function notifyUser(d: WorkerDeps, userId: string, kind: string, title: st
 export async function processDocument(d: WorkerDeps, job: JobRow): Promise<void> {
   const versionId = String(job.payload.versionId);
   const { rows } = await d.pool.query<{ asset_id: string; storage_key: string; processing_status: string; owner_user_id: string; title: string }>(
-    `SELECT v.asset_id, v.storage_key, v.processing_status, a.owner_user_id, a.title
+      `SELECT v.asset_id, v.storage_key, v.processing_status, a.owner_user_id, a.title
        FROM document_versions v JOIN document_assets a ON a.id = v.asset_id WHERE v.id = $1`,
-    [versionId],
+      [versionId],
   );
   const v = rows[0];
   if (!v) throw new PermanentJobError(`document version ${versionId} not found`);
@@ -64,13 +64,13 @@ export async function processDocument(d: WorkerDeps, job: JobRow): Promise<void>
     if (scan.verdict === "ERROR") throw new Error(`scanner unavailable: ${scan.error}`);
     if (scan.verdict === "INFECTED") {
       await d.pool.query(
-        `UPDATE document_versions SET scan_status = 'INFECTED', scan_engine = $2, processing_status = 'REJECTED', failure_reason = 'This file was flagged by our malware scanner and cannot be printed.' WHERE id = $1`,
-        [versionId, scan.engine],
+          `UPDATE document_versions SET scan_status = 'INFECTED', scan_engine = $2, processing_status = 'REJECTED', failure_reason = 'This file was flagged by our malware scanner and cannot be printed.' WHERE id = $1`,
+          [versionId, scan.engine],
       );
       await d.storage.delete(v.storage_key);
       await d.pool.query(
-        `INSERT INTO audit_log (actor_kind, action, entity_type, entity_id, details) VALUES ('SYSTEM', 'document.malware_detected', 'document_version', $1, $2)`,
-        [versionId, JSON.stringify({ signature: scan.signature, engine: scan.engine })],
+          `INSERT INTO audit_log (actor_kind, action, entity_type, entity_id, details) VALUES ('SYSTEM', 'document.malware_detected', 'document_version', $1, $2)`,
+          [versionId, JSON.stringify({ signature: scan.signature, engine: scan.engine })],
       );
       await notifyUser(d, v.owner_user_id, "document.rejected", "Document rejected", `"${v.title}" was flagged by our malware scanner and was deleted.`);
       return;
@@ -101,10 +101,10 @@ export async function processDocument(d: WorkerDeps, job: JobRow): Promise<void>
     }
     const printSha = await sha256File(prepared.printPdfPath);
     await d.pool.query(
-      `UPDATE document_versions SET scan_status = 'CLEAN', scan_engine = $2, detected_type = $3, page_count = $4, page_size = $5,
-              print_storage_key = $6, print_sha256 = $7, preview_pages = $8, processing_status = 'READY', failure_reason = NULL
-        WHERE id = $1`,
-      [versionId, scan.engine, prepared.detectedType, prepared.pageCount, prepared.pageSize, printKey, printSha, prepared.previewPaths.length],
+        `UPDATE document_versions SET scan_status = 'CLEAN', scan_engine = $2, detected_type = $3, page_count = $4, page_size = $5,
+                                      print_storage_key = $6, print_sha256 = $7, preview_pages = $8, processing_status = 'READY', failure_reason = NULL
+         WHERE id = $1`,
+        [versionId, scan.engine, prepared.detectedType, prepared.pageCount, prepared.pageSize, printKey, printSha, prepared.previewPaths.length],
     );
     await notifyUser(d, v.owner_user_id, "document.ready", "Document ready", `"${v.title}" is ready to print (${prepared.pageCount} page${prepared.pageCount === 1 ? "" : "s"}).`);
   } finally {
@@ -115,8 +115,8 @@ export async function processDocument(d: WorkerDeps, job: JobRow): Promise<void>
 /** Called when DOCUMENT_PROCESS gives up: never leave a version stuck in PROCESSING. */
 export async function documentGaveUp(d: WorkerDeps, job: JobRow, error: string): Promise<void> {
   await d.pool.query(
-    `UPDATE document_versions SET processing_status = 'FAILED', failure_reason = $2 WHERE id = $1 AND processing_status IN ('PENDING', 'PROCESSING')`,
-    [String(job.payload.versionId), `Processing failed: ${error}`.slice(0, 500)],
+      `UPDATE document_versions SET processing_status = 'FAILED', failure_reason = $2 WHERE id = $1 AND processing_status IN ('PENDING', 'PROCESSING')`,
+      [String(job.payload.versionId), `Processing failed: ${error}`.slice(0, 500)],
   );
 }
 
@@ -143,8 +143,8 @@ export async function sweepExpiredOrders(d: WorkerDeps): Promise<number> {
 export async function processRefund(d: WorkerDeps, job: JobRow): Promise<void> {
   const refundId = String(job.payload.refundId);
   const { rows } = await d.pool.query<{ status: string; amount_kobo: string; provider: string; provider_reference: string; provider_refund_reference: string | null }>(
-    `SELECT r.status, r.amount_kobo, p.provider, p.provider_reference, r.provider_refund_reference FROM refunds r JOIN payments p ON p.id = r.payment_id WHERE r.id = $1`,
-    [refundId],
+      `SELECT r.status, r.amount_kobo, p.provider, p.provider_reference, r.provider_refund_reference FROM refunds r JOIN payments p ON p.id = r.payment_id WHERE r.id = $1`,
+      [refundId],
   );
   const r = rows[0];
   if (!r) throw new PermanentJobError(`refund ${refundId} not found`);
@@ -159,43 +159,46 @@ export async function processRefund(d: WorkerDeps, job: JobRow): Promise<void> {
   // is applied here. Real providers confirm by webhook.
   if (r.provider === "TEST") {
     await withTransaction(d.pool, (c) =>
-      applyPaymentEvent(c, {
-        provider: "TEST",
-        eventId: `test_refund_${refundId}`,
-        eventType: "refund.processed",
-        reference: providerRefundReference,
-        amountKobo: Number(r.amount_kobo),
-        currency: "NGN",
-        signatureValid: true,
-        payload: { simulated: true, refundId },
-      }),
+        applyPaymentEvent(c, {
+          provider: "TEST",
+          eventId: `test_refund_${refundId}`,
+          eventType: "refund.processed",
+          reference: providerRefundReference,
+          amountKobo: Number(r.amount_kobo),
+          currency: "NGN",
+          signatureValid: true,
+          payload: { simulated: true, refundId },
+        }),
     );
   }
 }
 
-/** Finds INITIATED payments whose webhook never arrived and asks the provider. */
+/** Finds INITIATED payments and wallet top-ups whose webhook never arrived and asks the provider. */
 export async function reconcilePayments(d: WorkerDeps): Promise<void> {
   if (!d.payments || d.payments.name !== "PAYSTACK" || !("verify" in d.payments)) return;
   const provider = d.payments as PaymentProvider & { verify(ref: string): Promise<{ status: string; amountKobo: number; currency: string; id: string }> };
   const { rows } = await d.pool.query<{ provider_reference: string }>(
-    `SELECT provider_reference FROM payments WHERE provider = 'PAYSTACK' AND status = 'INITIATED' AND created_at < now() - interval '10 minutes' AND created_at > now() - interval '2 days' LIMIT 100`,
+      `SELECT provider_reference FROM payments WHERE provider = 'PAYSTACK' AND status = 'INITIATED' AND created_at < now() - interval '10 minutes' AND created_at > now() - interval '2 days'
+       UNION ALL
+      SELECT provider_reference FROM wallet_topups WHERE provider = 'PAYSTACK' AND status = 'INITIATED' AND created_at < now() - interval '10 minutes' AND created_at > now() - interval '2 days'
+        LIMIT 100`,
   );
   for (const p of rows) {
     try {
       const v = await provider.verify(p.provider_reference);
       if (v.status !== "success" && v.status !== "failed") continue;
       await withTransaction(d.pool, (c) =>
-        applyPaymentEvent(c, {
-          provider: "PAYSTACK",
-          eventId: `charge.${v.status}:${v.id}`,
-          eventType: v.status === "success" ? "charge.success" : "charge.failed",
-          reference: p.provider_reference,
-          amountKobo: v.amountKobo,
-          currency: v.currency,
-          // Obtained by our authenticated call to the provider, not from an inbound request.
-          signatureValid: true,
-          payload: { source: "reconciliation" },
-        }),
+          applyPaymentEvent(c, {
+            provider: "PAYSTACK",
+            eventId: `charge.${v.status}:${v.id}`,
+            eventType: v.status === "success" ? "charge.success" : "charge.failed",
+            reference: p.provider_reference,
+            amountKobo: v.amountKobo,
+            currency: v.currency,
+            // Obtained by our authenticated call to the provider, not from an inbound request.
+            signatureValid: true,
+            payload: { source: "reconciliation" },
+          }),
       );
     } catch (e) {
       d.log.warn({ err: e, reference: p.provider_reference }, "reconciliation lookup failed");
@@ -203,30 +206,64 @@ export async function reconcilePayments(d: WorkerDeps): Promise<void> {
   }
 }
 
+/**
+ * Lapses provider verification checks whose renewal date has passed, so a provider who
+ * has graduated or left stops being described to students as a current student. The
+ * owner is told, because the drop costs them orders.
+ */
+export async function reverifyProviders(d: WorkerDeps): Promise<number> {
+  const expired = await withTransaction(d.pool, (c) => expireDueChecks(c));
+  for (const e of expired) {
+    const { rows } = await d.pool.query<{ user_id: string; name: string; level: string }>(
+        `SELECT sm.user_id, s.name, s.verification_level AS level FROM shops s
+                                                                         JOIN shop_memberships sm ON sm.shop_id = s.id AND sm.role = 'OWNER' AND sm.revoked_at IS NULL
+         WHERE s.id = $1 ORDER BY sm.id LIMIT 1`,
+        [e.shopId],
+    );
+    const owner = rows[0];
+    if (!owner) continue;
+    await notifyUser(
+        d,
+        owner.user_id,
+        "provider.reverify_due",
+        "Confirm you are still a student",
+        `${owner.name}: your verification has reached its renewal date, so your shop now shows as less verified to students. Confirm your university email and matric number again in Verification to restore it.`,
+    );
+    await enqueueJob(d.pool, "NOTIFY", { userId: owner.user_id, link: "/shop" });
+  }
+  if (expired.length) d.log.info({ expired: expired.length }, "provider verification checks lapsed");
+  return expired.length;
+}
+
 // ---------------------------------------------------------------- notifications
 
 export async function sendNotification(d: WorkerDeps, job: JobRow): Promise<void> {
   const userId = String(job.payload.userId);
   const { rows } = await d.pool.query<{ email: string; status: string; phone: string | null; phone_verified: boolean }>(
-    `SELECT email, status, phone, phone_verified_at IS NOT NULL AS phone_verified FROM users WHERE id = $1`,
-    [userId],
+      `SELECT email, status, phone, phone_verified_at IS NOT NULL AS phone_verified FROM users WHERE id = $1`,
+      [userId],
   );
   const u = rows[0];
   if (!u || u.status !== "ACTIVE") return;
-  const n = await d.pool.query<{ title: string; body: string }>(
-    `SELECT title, body FROM notifications WHERE user_id = $1 AND ($2::uuid IS NULL OR order_id = $2) ORDER BY id DESC LIMIT 1`,
-    [userId, job.payload.orderId ? String(job.payload.orderId) : null],
-  );
+  // Wallet notices name their notification; order notices take the latest for the order.
+  const n = job.payload.notificationId
+      ? await d.pool.query<{ title: string; body: string }>(`SELECT title, body FROM notifications WHERE id = $1 AND user_id = $2`, [Number(job.payload.notificationId), userId])
+      : await d.pool.query<{ title: string; body: string }>(
+          `SELECT title, body FROM notifications WHERE user_id = $1 AND ($2::uuid IS NULL OR order_id = $2) ORDER BY id DESC LIMIT 1`,
+          [userId, job.payload.orderId ? String(job.payload.orderId) : null],
+      );
   if (!n.rows[0]) return;
-  const link = `${d.webUrl}/student/orders${job.payload.orderId ? `/${String(job.payload.orderId)}` : ""}`;
+  const path = typeof job.payload.link === "string" && job.payload.link.startsWith("/") ? job.payload.link : `/student/orders${job.payload.orderId ? `/${String(job.payload.orderId)}` : ""}`;
+  const link = `${d.webUrl}${path}`;
   await d.mailer.send({
     to: u.email,
     subject: `PrintFlow: ${n.rows[0].title}`,
-    text: `${n.rows[0].body}\n\nView your order: ${link}`,
+    text: `${n.rows[0].body}\n\n${job.payload.link ? "Open your wallet" : "View your order"}: ${link}`,
   });
   // SMS is best-effort and sent once: a gateway failure must not make the job
   // retry and repeat the email.
-  if (u.phone && u.phone_verified && SMS_STATUSES.has(String(job.payload.status ?? ""))) {
+  const wantsSms = job.payload.sms === true || SMS_STATUSES.has(String(job.payload.status ?? ""));
+  if (u.phone && u.phone_verified && wantsSms) {
     try {
       await d.sms.send({ to: u.phone, text: `PrintFlow: ${n.rows[0].body} ${link}`.slice(0, 300) });
     } catch (e) {
@@ -241,15 +278,15 @@ export async function sendNotification(d: WorkerDeps, job: JobRow): Promise<void
 export async function purgeRetention(d: WorkerDeps, job: JobRow | null): Promise<number> {
   const assetFilter = job?.payload.assetId ? String(job.payload.assetId) : null;
   const { rows } = await d.pool.query<{ id: string; asset_id: string; storage_key: string; print_storage_key: string | null; preview_pages: number | null }>(
-    `SELECT v.id, v.asset_id, v.storage_key, v.print_storage_key, v.preview_pages
+      `SELECT v.id, v.asset_id, v.storage_key, v.print_storage_key, v.preview_pages
        FROM document_versions v JOIN document_assets a ON a.id = v.asset_id JOIN universities u ON u.id = v.university_id
-      WHERE v.files_purged_at IS NULL AND ($1::uuid IS NULL OR v.asset_id = $1)
-        AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.document_version_id = v.id AND o.status NOT IN ('COLLECTED', 'CANCELLED', 'EXPIRED', 'REFUNDED'))
-        AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.document_version_id = v.id AND o.status_changed_at > now() - make_interval(days => u.document_retention_days))
-        AND (a.deleted_at IS NOT NULL OR v.processing_status IN ('REJECTED', 'FAILED')
-             OR v.created_at < now() - make_interval(days => u.document_retention_days))
-      LIMIT 500`,
-    [assetFilter],
+       WHERE v.files_purged_at IS NULL AND ($1::uuid IS NULL OR v.asset_id = $1)
+         AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.document_version_id = v.id AND o.status NOT IN ('COLLECTED', 'CANCELLED', 'EXPIRED', 'REFUNDED'))
+         AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.document_version_id = v.id AND o.status_changed_at > now() - make_interval(days => u.document_retention_days))
+         AND (a.deleted_at IS NOT NULL OR v.processing_status IN ('REJECTED', 'FAILED')
+         OR v.created_at < now() - make_interval(days => u.document_retention_days))
+         LIMIT 500`,
+      [assetFilter],
   );
   for (const v of rows) {
     const keys = [v.storage_key, v.print_storage_key, ...Array.from({ length: v.preview_pages ?? 0 }, (_, i) => objectKeys.preview(v.asset_id, v.id, i + 1))].filter((k): k is string => Boolean(k));
@@ -273,6 +310,9 @@ export async function privacyExport(d: WorkerDeps, job: JobRow): Promise<void> {
     documents: await q(`SELECT a.title, v.version_number, v.original_filename, v.page_count, v.created_at, v.files_purged_at FROM document_assets a JOIN document_versions v ON v.asset_id = a.id WHERE a.owner_user_id = $1`),
     orders: await q(`SELECT o.reference, o.status, o.total_kobo, o.created_at, q.spec, q.lines FROM orders o JOIN quotes q ON q.id = o.quote_id WHERE o.student_user_id = $1`),
     payments: await q(`SELECT p.provider_reference, p.amount_kobo, p.status, p.created_at FROM payments p JOIN orders o ON o.id = p.order_id WHERE o.student_user_id = $1`),
+    wallet: await q(`SELECT cash_kobo, promo_kobo, updated_at FROM wallets WHERE user_id = $1`),
+    walletEntries: await q(`SELECT kind, cash_kobo, promo_kobo, order_id, note, created_at FROM wallet_entries WHERE user_id = $1 ORDER BY id`),
+    walletTopups: await q(`SELECT provider_reference, amount_kobo, status, channel, created_at, confirmed_at FROM wallet_topups WHERE user_id = $1 ORDER BY created_at`),
     disputes: await q(`SELECT category, description, status, opened_at FROM disputes WHERE opened_by = $1`),
     notifications: await q(`SELECT title, body, created_at FROM notifications WHERE user_id = $1`),
   };

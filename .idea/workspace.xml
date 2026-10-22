@@ -4,11 +4,88 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5b2c4cd0-851d-4c4c-874c-f2d1067dad54" name="Changes" comment="" />
+    <list default="true" id="5b2c4cd0-851d-4c4c-874c-f2d1067dad54" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/apps/api/src/infra/s3.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/apps/api/src/modules/wallet.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/apps/api/test/wallet.test.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/apps/mobile/app/student/wallet.tsx" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/apps/web/app/admin/[universityId]/credit/page.tsx" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/apps/web/app/student/wallet/page.tsx" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/apps/web/e2e/wallet.spec.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/db/migrations/0007_wallet.sql" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/db/test/wallet.test.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/esbuild.config.mjs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/packages/data/src/wallet.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/scripts/seed-demo.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/scripts/seed-demo.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/src/app.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/app.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/src/config.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/config.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/src/http/errors.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/http/errors.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/src/http/schemas.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/http/schemas.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/src/modules/catalogue.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/modules/catalogue.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/src/modules/documents.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/modules/documents.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/src/modules/payments.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/modules/payments.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/src/modules/phone.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/modules/phone.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/src/modules/shop.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/modules/shop.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/src/modules/student-orders.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/modules/student-orders.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/src/modules/university.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/modules/university.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/src/openapi.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/openapi.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/test/harness.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/test/harness.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/test/security.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/test/security.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/tsconfig.json" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/tsconfig.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/mobile/app/order/[id].tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/mobile/app/order/[id].tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/mobile/app/student/_layout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/mobile/app/student/_layout.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/mobile/app/student/print.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/mobile/app/student/print.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/mobile/scripts/web-smoke.mjs" beforeDir="false" afterPath="$PROJECT_DIR$/apps/mobile/scripts/web-smoke.mjs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/web/app/admin/[universityId]/disputes/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/app/admin/[universityId]/disputes/page.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/web/app/admin/[universityId]/layout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/app/admin/[universityId]/layout.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/web/app/admin/[universityId]/orders/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/app/admin/[universityId]/orders/page.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/web/app/checkout/test/[reference]/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/app/checkout/test/[reference]/page.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/web/app/student/layout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/app/student/layout.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/web/app/student/orders/[orderId]/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/app/student/orders/[orderId]/page.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/web/app/student/print/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/app/student/print/page.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/worker/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/apps/worker/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/worker/src/handlers.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/worker/src/handlers.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/worker/src/main.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/worker/src/main.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/worker/src/runner.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/worker/src/runner.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/db/test/workflow.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/db/test/workflow.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/API.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/API.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/DATABASE.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/DATABASE.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/QA_REPORT.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/QA_REPORT.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/THREAT_MODEL.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/THREAT_MODEL.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/TRACEABILITY.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/TRACEABILITY.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/openapi.json" beforeDir="false" afterPath="$PROJECT_DIR$/docs/openapi.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/packages/data/src/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/packages/data/src/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/packages/data/src/orders.ts" beforeDir="false" afterPath="$PROJECT_DIR$/packages/data/src/orders.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/packages/data/src/payments.ts" beforeDir="false" afterPath="$PROJECT_DIR$/packages/data/src/payments.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/packages/storage/src/storage.ts" beforeDir="false" afterPath="$PROJECT_DIR$/packages/storage/src/storage.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pnpm-lock.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/pnpm-lock.yaml" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "lastFilter": {
+    "state": "OPEN",
+    "assignee": "Nifemi-Joe"
+  }
+}]]></component>
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/Nifemi-Joe/printflow.git",
+    "accountId": "f4061fb9-e94d-4da8-82f2-8eb46943093f"
+  }
+}]]></component>
+  <component name="McpProjectServerCommands">
+    <commands />
+    <urls />
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
@@ -69,10 +146,10 @@
       <entry key="W1" value="27.730045344238654" />
     </decayedShown>
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 4,
-  "fromUser": false
-}]]></component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 4,
+  &quot;fromUser&quot;: false
+}</component>
   <component name="ProjectId" id="3KaOtneouDSPMi7237K0vMo1n5L" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
@@ -81,14 +158,16 @@
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
     "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.MCP Project settings loaded": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.typescript.service.memoryLimit.init": "true",
     "codeWithMe.voiceChat.enabledByDefault": "false",
     "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
     "dart.analysis.tool.window.visible": "false",
+    "git-widget-placeholder": "main",
     "javascript.preferred.runtime.type.id": "node",
     "junie.onboarding.icon.badge.shown": "true",
-    "last_opened_file_path": "/Users/mac/Downloads/printflow",
+    "last_opened_file_path": "/Users/mac/Downloads/printflow/apps/web/app/admin/[universityId]",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.jshint": "true",
     "node.js.detected.package.tslint": "true",
@@ -97,11 +176,24 @@
     "node.js.selected.package.tslint": "(autodetect)",
     "nodejs_package_manager_path": "pnpm",
     "npm.db:migrate.executor": "Run",
+    "npm.dev:api.executor": "Run",
+    "npm.dev:web.executor": "Run",
+    "npm.dev:worker.executor": "Run",
+    "npm.ios.executor": "Run",
     "to.speed.mode.migration.done": "true",
-    "ts.external.directory.path": "/Applications/WebStorm 2.app/Contents/plugins/javascript-plugin/jsLanguageServicesImpl/external"
+    "ts.external.directory.path": "/Users/mac/Downloads/printflow/node_modules/typescript/lib"
   }
 }]]></component>
-  <component name="RunManager">
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/apps/web/app/admin/[universityId]" />
+      <recent name="$PROJECT_DIR$/apps/mobile/components" />
+      <recent name="$PROJECT_DIR$/apps/api/test" />
+      <recent name="$PROJECT_DIR$/apps/api/src/modules" />
+      <recent name="$PROJECT_DIR$/apps/api/src/http" />
+    </key>
+  </component>
+  <component name="RunManager" selected="npm.ios">
     <configuration name="db:migrate" type="js.build_tools.npm" temporary="true" nameIsGenerated="true">
       <package-json value="$PROJECT_DIR$/package.json" />
       <command value="run" />
@@ -112,8 +204,52 @@
       <envs />
       <method v="2" />
     </configuration>
+    <configuration name="dev:api" type="js.build_tools.npm" temporary="true" nameIsGenerated="true">
+      <package-json value="$PROJECT_DIR$/package.json" />
+      <command value="run" />
+      <scripts>
+        <script value="dev:api" />
+      </scripts>
+      <node-interpreter value="project" />
+      <envs />
+      <method v="2" />
+    </configuration>
+    <configuration name="dev:web" type="js.build_tools.npm" temporary="true" nameIsGenerated="true">
+      <package-json value="$PROJECT_DIR$/package.json" />
+      <command value="run" />
+      <scripts>
+        <script value="dev:web" />
+      </scripts>
+      <node-interpreter value="project" />
+      <envs />
+      <method v="2" />
+    </configuration>
+    <configuration name="dev:worker" type="js.build_tools.npm" temporary="true" nameIsGenerated="true">
+      <package-json value="$PROJECT_DIR$/package.json" />
+      <command value="run" />
+      <scripts>
+        <script value="dev:worker" />
+      </scripts>
+      <node-interpreter value="project" />
+      <envs />
+      <method v="2" />
+    </configuration>
+    <configuration name="ios" type="js.build_tools.npm" temporary="true" nameIsGenerated="true">
+      <package-json value="$PROJECT_DIR$/apps/mobile/package.json" />
+      <command value="run" />
+      <scripts>
+        <script value="ios" />
+      </scripts>
+      <node-interpreter value="project" />
+      <envs />
+      <method v="2" />
+    </configuration>
     <recent_temporary>
       <list>
+        <item itemvalue="npm.dev:web" />
+        <item itemvalue="npm.ios" />
+        <item itemvalue="npm.dev:worker" />
+        <item itemvalue="npm.dev:api" />
         <item itemvalue="npm.db:migrate" />
       </list>
     </recent_temporary>
@@ -133,6 +269,7 @@
       <option name="presentableId" value="Default" />
       <updated>1791792430835</updated>
       <workItem from="1791792432054" duration="6416000" />
+      <workItem from="1792092633956" duration="13140000" />
     </task>
     <servers />
   </component>

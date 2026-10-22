@@ -153,16 +153,28 @@ describe("authorization and tenant isolation in state changes", () => {
     ).rejects.toBeInstanceOf(RuleViolationError);
   });
 
-  it("a shop rejection automatically opens a full refund", async () => {
+  it("a shop rejection automatically refunds in full, to the wallet by default (instant)", async () => {
     const o = await paidOrder(alpha);
     const r = await withTransaction(db, (c) =>
       transitionOrder(c, { orderId: o.orderId, to: "REJECTED", scope: shop(alpha), actorUserId: alpha.ownerUserId, permissions: OWNER_PERMS, reason: "Out of A4 paper today" }),
     );
-    expect(r.status).toBe("REFUND_PENDING");
-    const refunds = await db.query<{ amount_kobo: string }>(`SELECT amount_kobo FROM refunds WHERE order_id = $1`, [o.orderId]);
-    expect(refunds.rows.map((x) => Number(x.amount_kobo))).toEqual([o.totalKobo]);
-    const job = await db.query(`SELECT 1 FROM jobs WHERE kind = 'REFUND_PROCESS' AND payload->>'refundId' IS NOT NULL`);
-    expect(job.rowCount).toBeGreaterThan(0);
+    expect(r.status).toBe("REFUNDED");
+    const refunds = await db.query<{ amount_kobo: string; destination: string; status: string }>(`SELECT amount_kobo, destination, status FROM refunds WHERE order_id = $1`, [o.orderId]);
+    expect(refunds.rows.map((x) => [Number(x.amount_kobo), x.destination, x.status])).toEqual([[o.totalKobo, "WALLET", "SUCCEEDED"]]);
+    const credited = await db.query<{ cash_kobo: string }>(`SELECT cash_kobo FROM wallet_entries WHERE order_id = $1 AND kind = 'CARD_REFUND'`, [o.orderId]);
+    expect(Number(credited.rows[0]!.cash_kobo)).toBe(o.totalKobo);
+  });
+
+  it("a rejection refunded through the provider waits for the provider", async () => {
+    const o = await paidOrder(alpha);
+    await withTransaction(db, (c) =>
+      transitionOrder(c, { orderId: o.orderId, to: "REJECTED", scope: shop(alpha), actorUserId: alpha.ownerUserId, permissions: OWNER_PERMS, reason: "Out of A4 paper today", refundTo: "PROVIDER" }),
+    );
+    expect(await statusOf(o.orderId)).toBe("REFUND_PENDING");
+    const refunds = await db.query<{ amount_kobo: string; destination: string }>(`SELECT amount_kobo, destination FROM refunds WHERE order_id = $1`, [o.orderId]);
+    expect(refunds.rows.map((x) => [Number(x.amount_kobo), x.destination])).toEqual([[o.totalKobo, "PROVIDER"]]);
+    const job = await db.query(`SELECT 1 FROM jobs WHERE kind = 'REFUND_PROCESS' AND payload->>'refundId' = (SELECT id::text FROM refunds WHERE order_id = $1)`, [o.orderId]);
+    expect(job.rowCount).toBe(1);
   });
 });
 
@@ -261,7 +273,7 @@ describe("payments", () => {
 
   it("payments must equal the order total", async () => {
     const o = await createOrder(db, alpha);
-    await expectDbError(initiatePayment(db, o.orderId, o.totalKobo + 1, alpha.universityId), "does not equal order total");
+    await expectDbError(initiatePayment(db, o.orderId, o.totalKobo + 1, alpha.universityId), "does not equal the amount due");
   });
 
   it("money arriving after an order expired is refunded, not kept", async () => {
@@ -276,7 +288,7 @@ describe("payments", () => {
   it("provider refund confirmation completes the refund and the order", async () => {
     const o = await paidOrder(alpha);
     await withTransaction(db, (c) =>
-      transitionOrder(c, { orderId: o.orderId, to: "REFUND_PENDING", scope: { kind: "UNIVERSITY", universityId: alpha.universityId }, actorUserId: alpha.adminUserId, reason: "Shop closed" }),
+      transitionOrder(c, { orderId: o.orderId, to: "REFUND_PENDING", scope: { kind: "UNIVERSITY", universityId: alpha.universityId }, actorUserId: alpha.adminUserId, reason: "Shop closed", refundTo: "PROVIDER" }),
     );
     const refund = (await db.query<{ id: string }>(`SELECT id FROM refunds WHERE order_id = $1`, [o.orderId])).rows[0]!;
     await db.query(`UPDATE refunds SET status = 'PROCESSING', provider_refund_reference = $2 WHERE id = $1`, [refund.id, `rf_${refund.id}`]);
@@ -449,7 +461,8 @@ describe("production failures and reprints", () => {
       alpha.ownerUserId,
     ]);
     await moveTo(o.orderId, alpha, [["PRINTING", "Reprint: pages 4-5 missing"], ["PRINT_FAILED", "Device fault"], ["REFUND_PENDING", "Cannot complete job"]]);
-    expect(await statusOf(o.orderId)).toBe("REFUND_PENDING");
+    // Refunded to the wallet straight away (the default destination).
+    expect(await statusOf(o.orderId)).toBe("REFUNDED");
     expect(await queuePosition(db, o.orderId)).toBeNull();
   });
 

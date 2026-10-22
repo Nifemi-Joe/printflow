@@ -1,3 +1,4 @@
+import "reflect-metadata";
 import pg from "pg";
 import pino from "pino";
 import { ClamdScanner, NoopDevScanner } from "../../../packages/documents/src/index.js";
@@ -9,7 +10,11 @@ import { runForever } from "./runner.js";
 
 const cfg = loadWorkerConfig();
 const devConsole = cfg.NODE_ENV !== "production" && (cfg.DEV_CONSOLE ?? true);
-const log = pino({ level: cfg.LOG_LEVEL, base: { service: "printflow-worker", worker: cfg.WORKER_ID }, redact: ["*.password", "*.token", "*.code", "mail.text", "sms.text"] });
+const log = pino({
+  level: cfg.LOG_LEVEL,
+  base: { service: "printflow-worker", worker: cfg.WORKER_ID },
+  redact: ["*.password", "*.token", "*.code", "mail.text", "sms.text"],
+});
 
 if (cfg.SCANNER === "NONE") log.warn("SCANNER=NONE: uploads are NOT scanned for malware (development only)");
 
@@ -49,6 +54,15 @@ for (const sig of ["SIGTERM", "SIGINT"] as const) {
   });
 }
 
-log.info({ scanner: deps.scanner.name, storage: deps.storage.driver, concurrency: cfg.WORKER_CONCURRENCY }, "PrintFlow worker started");
-await runForever(deps, { workerId: cfg.WORKER_ID, pollMs: cfg.POLL_INTERVAL_MS, concurrency: cfg.WORKER_CONCURRENCY, scheduler: cfg.RUN_SCHEDULER, signal: controller.signal });
+log.info(
+    { scanner: deps.scanner.name, storage: deps.storage.driver, concurrency: cfg.WORKER_CONCURRENCY },
+    "PrintFlow worker started",
+);
+await runForever(deps, {
+  workerId: cfg.WORKER_ID,
+  pollMs: cfg.POLL_INTERVAL_MS,
+  concurrency: cfg.WORKER_CONCURRENCY,
+  scheduler: cfg.RUN_SCHEDULER,
+  signal: controller.signal,
+});
 await deps.pool.end();

@@ -498,14 +498,14 @@ describe("quotes, orders and payments", () => {
 });
 
 describe("cancellations, refunds and failures", () => {
-  it("a student cancels a paid order before acceptance and is refunded", async () => {
+  it("a student cancels a paid order before acceptance and is refunded to their card", async () => {
     const a = await paidOrder(uniA, shopA, "cancelpaid");
-    const c = await a.client.post(`/v1/orders/${a.orderId}/cancel`, { reason: "Printed elsewhere" });
+    const c = await a.client.post(`/v1/orders/${a.orderId}/cancel`, { reason: "Printed elsewhere", refundTo: "PROVIDER" });
     expect(c.body.status).toBe("REFUND_PENDING");
     await h.drain();
     const d = await a.client.get(`/v1/orders/${a.orderId}`);
     expect(d.body.status).toBe("REFUNDED");
-    expect(d.body.refunds[0]).toMatchObject({ amountKobo: String(a.totalKobo), status: "SUCCEEDED" });
+    expect(d.body.refunds[0]).toMatchObject({ amountKobo: String(a.totalKobo), status: "SUCCEEDED", destination: "PROVIDER" });
   });
 
   it("cannot cancel after the shop accepts", async () => {
@@ -520,9 +520,11 @@ describe("cancellations, refunds and failures", () => {
     const noReason = await shopA.owner.post(`/v1/shops/${shopA.shopId}/orders/${a.orderId}/transitions`, { to: "REJECTED" });
     expect(noReason.body.error.code).toBe("REASON_REQUIRED");
     const r = await shopA.owner.post(`/v1/shops/${shopA.shopId}/orders/${a.orderId}/transitions`, { to: "REJECTED", reason: "File is landscape posters" });
-    expect(r.body.status).toBe("REFUND_PENDING");
-    await h.drain();
-    expect((await a.client.get(`/v1/orders/${a.orderId}`)).body.status).toBe("REFUNDED");
+    // Refunded to the student's wallet straight away.
+    expect(r.body.status).toBe("REFUNDED");
+    const d = await a.client.get(`/v1/orders/${a.orderId}`);
+    expect(d.body.refunds[0]).toMatchObject({ destination: "WALLET", status: "SUCCEEDED" });
+    expect(d.body.wallet.balanceKobo).toBe(a.totalKobo);
   });
 
   it("a failed printer can retry; QA mismatch forces a reprint; unrecoverable failure refunds", async () => {
@@ -539,8 +541,7 @@ describe("cancellations, refunds and failures", () => {
     const detail = await shopA.owner.get(`/v1/shops/${shopA.shopId}/orders/${a.orderId}`);
     expect(detail.body.qualityChecks[0]).toMatchObject({ result: "FAIL", issues: ["PAGE_COUNT_MISMATCH"] });
     await t("PRINT_FAILED", { reason: "Toner out, no spare" });
-    expect((await t("REFUND_PENDING", { reason: "Cannot complete this job today" })).body.status).toBe("REFUND_PENDING");
-    await h.drain();
+    expect((await t("REFUND_PENDING", { reason: "Cannot complete this job today" })).body.status).toBe("REFUNDED");
     expect((await a.client.get(`/v1/orders/${a.orderId}`)).body.status).toBe("REFUNDED");
   });
 
@@ -548,7 +549,7 @@ describe("cancellations, refunds and failures", () => {
     const a = await paidOrder(uniA, shopA, "dispute");
     const d = await a.client.post(`/v1/orders/${a.orderId}/disputes`, { category: "QUALITY", description: "Pages 2 is smudged and unreadable" });
     expect(d.status).toBe(201);
-    const r = await uniA.admin.post(`/v1/admin/universities/${uniA.universityId}/disputes/${d.body.id}/resolve`, { status: "RESOLVED_REFUND", note: "Partial refund for page 2", refundKobo: 2_000 });
+    const r = await uniA.admin.post(`/v1/admin/universities/${uniA.universityId}/disputes/${d.body.id}/resolve`, { status: "RESOLVED_REFUND", note: "Partial refund for page 2", refundKobo: 2_000, refundTo: "PROVIDER" });
     expect(r.status).toBe(200);
     await h.drain();
     const o = await a.client.get(`/v1/orders/${a.orderId}`);
@@ -578,7 +579,7 @@ describe("cancellations, refunds and failures", () => {
     const a = await paidOrder(uniA, shopA, "refundretry");
     const base = `/v1/admin/universities/${uniA.universityId}/orders/${a.orderId}`;
     expect((await uniA.admin.post(`${base}/refund-retry`, { reason: "Nothing failed yet" })).body.error.code).toBe("NOT_REFUND_PENDING");
-    await uniA.admin.post(`${base}/refund`, { reason: "Shop closed for the week" });
+    await uniA.admin.post(`${base}/refund`, { reason: "Shop closed for the week", refundTo: "PROVIDER" });
     // Simulate the provider refusing the refund before the worker completes it.
     await h.pool.query(`UPDATE refunds SET status = 'FAILED', completed_at = now() WHERE order_id = $1`, [a.orderId]);
     await h.drain();

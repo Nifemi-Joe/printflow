@@ -52,9 +52,26 @@ including a malicious student, a rogue shop employee and a compromised staff acc
 | T24 | Taking over an account by changing its phone | changing a phone requires being signed in, resets verification, and only a code sent to the new number confirms it; phone changes are impossible through the profile endpoint | `phone.test.ts` |
 | T25 | Mislabelled payment method | the method shown on receipts comes only from the signed provider webhook; unsigned events change nothing | `checkout-power.test.ts` |
 | T26 | False power reports | only staff with `orders.produce` at that shop can report; every report is audited with who and when; students see who reported and when, and old reports are marked out of date | `checkout-power.test.ts` |
+| T27 | Creating wallet money (forged or replayed top-up, editing balances) | balances change only through ledger rows, enforced by triggers; a top-up is credited only from a signed provider event (or our own reconciliation call) whose amount matches; each top-up, refund and stray payment can be credited once (unique indexes) | `wal`, `wal-db` |
+| T28 | Spending the same balance twice (double-click, two devices) | the wallet row is locked for every entry; one payment entry per order; balance cannot go below zero | `wal` race test, `wal-db` concurrent spends |
+| T29 | Turning print credit into cash | credit is spent first, refunds return it as credit, revocation touches credit only, and there is no withdrawal at all | `wal`, `wal-db` |
+| T30 | Staff abusing print credit | only university admin/finance can grant, per-grant cap (`PROMO_GRANT_MAX_KOBO`), Idempotency-Key, every grant and revocation audited with a reason the student sees | `wal` |
+| T31 | Someone pretending to be a student to collect other students' documents | a student-run shop proves itself through recorded checks: a code to an address on the university's own mail domain, a matric number matched to the university's roll or confirmed by its staff, or an admin who met them. The level is derived by the database from those checks and cannot be set directly | `pv` (level cannot be written, one address per shop, one matric per shop), `pv-db` |
+| T32 | A student unknowingly sending private documents to a stranger | a shop's standing is shown wherever one is chosen and on every order; below a verified matric number a student-run shop is left out of the list, capped per order, and the student must acknowledge the risk in words that say what the provider can see. The database refuses an unacknowledged or oversized order | `pv` (both refusals, and the database bypass), `e2e-pv` |
+| T33 | A provider keeping, copying or selling documents they print | a versioned confidentiality undertaking must be accepted before any order can reach them; the wording's SHA-256 is stored with the acceptance, so a later edit cannot be passed off as what was signed. Reports are handled by suspending the provider, which closes the shop and withdraws everything proven about them | `pv` (no orders before acceptance, suspension), DB guard |
+| T34 | A provider who has graduated or left still described as a current student | every passed check carries a renewal date; a worker job lapses them, which drops the level at once and tells the owner. A university can withdraw any check at any time | `pv` (renewal, withdrawal) |
+| T35 | PrintFlow holding a copy of a university's student register | an uploaded roll keeps only the matric number and an HMAC of the surname, under a key held by the API; a roll is replaced wholesale, never merged, and the upload is audited by size only | `pv` (no name is stored) |
+| T36 | A student-run shop used as a route to other students' documents at scale | the order cap bounds the value of any single job before a matric number is confirmed; the university sees every provider, how far each is proven and how many orders they have taken, and can stop any of them | `pv`, review screen |
 | T20 | Denial of service | Request size limits; streamed uploads; rate limits; bounded worker concurrency and timeouts; jobs dead-lettered after their attempt limit | partial: see gaps |
 
 ## Known gaps and accepted risks
+
+**Wallet regulation (not numbered, added with the wallet).** The wallet is closed-loop and
+spend-only, which keeps it simpler than a withdrawable e-money balance. Whether it still
+needs a licence or a licensed partner in Nigeria has not been checked with a lawyer or the
+CBN. Students' wallet money sits in the operator's Paystack balance and should be tracked
+as a liability (the university's Print credit page shows the totals). Get legal advice
+before launch.
 
 1. **No independent review.** Commission a penetration test before launch.
 2. **Paystack integration unverified.** Signature checking and event mapping follow

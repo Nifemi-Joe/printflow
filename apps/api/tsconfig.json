@@ -2,7 +2,8 @@
   "extends": "../../tsconfig.base.json",
   "ts-node": {
     "compilerOptions": {
-      "experimentalDecorators": true
+      "experimentalDecorators": true,
+      "emitDecoratorMetadata": true
     }
   },
   "compilerOptions": {
@@ -10,10 +11,17 @@
     "noEmit": true,
     "composite": false,
     "declaration": false,
+    "declarationMap": true,
+    "sourceMap": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "exactOptionalPropertyTypes": false,
-    "types": ["node"]
+    "types": ["node"],
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
   },
-  "include": ["src", "test", "scripts", "../../packages/*/src"]
+  "include": ["src", "test", "scripts", "../../packages/*/src"],
+  "exclude": ["dist", "node_modules"]
 }

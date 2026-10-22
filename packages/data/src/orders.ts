@@ -8,6 +8,7 @@ import {
 } from "../../domain/src/index.js";
 import { ConflictError, NotFoundError, RuleViolationError } from "./errors.js";
 import type { Queryable } from "./tx.js";
+import { noRefundInFlight, refundOrder, releaseWalletFromOrder, type RefundDestination } from "./wallet.js";
 
 /**
  * Tenant scope of the caller. Every lookup is filtered by it, so an order outside
@@ -85,6 +86,11 @@ export interface TransitionInput {
   expectedVersion?: number;
   deviceId?: string;
   requestId?: string;
+  /**
+   * Where card/transfer/USSD money goes when this transition starts a refund. What
+   * came from the wallet always goes back to the wallet. Default: the wallet (instant).
+   */
+  refundTo?: RefundDestination;
 }
 
 /** Student-facing notifications emitted on status changes. */
@@ -97,8 +103,11 @@ const STUDENT_NOTICES: Partial<Record<OrderStatus, { title: string; body: string
   READY_FOR_PICKUP: { title: "Ready for pickup", body: "Your prints are ready. Show your pickup code at the counter." },
   COLLECTED: { title: "Collected", body: "Your order was collected. Thank you for using PrintFlow." },
   EXPIRED: { title: "Order expired", body: "Payment was not completed in time, so the order expired." },
-  REFUND_PENDING: { title: "Refund started", body: "A refund for this order is being processed." },
-  REFUNDED: { title: "Refund completed", body: "Your refund has been completed by the payment provider." },
+  REFUND_PENDING: { title: "Refund started", body: "A refund for this order has started." },
+  REFUNDED: {
+    title: "Refund completed",
+    body: "Your refund is complete. Money refunded to your PrintFlow wallet is ready to use now; refunds to a card or bank account can take a few days to appear.",
+  },
 };
 
 /**
@@ -159,38 +168,30 @@ export async function transitionOrder(db: Queryable, input: TransitionInput): Pr
     ]);
   }
 
+  // An unpaid order that ends gives back whatever it took from the wallet.
+  if (order.status === "AWAITING_PAYMENT" && (input.to === "CANCELLED" || input.to === "EXPIRED")) {
+    await releaseWalletFromOrder(db, order.id, input.to === "EXPIRED" ? "expired before it was paid" : "was cancelled before it was paid");
+  }
+
   // A rejected job is always refunded in full, automatically.
   if (input.to === "REJECTED") {
-    return transitionOrder(db, { orderId: order.id, to: "REFUND_PENDING", scope: { kind: "SYSTEM" }, actorUserId: null, reason: "Rejected by shop" });
+    return transitionOrder(db, { orderId: order.id, to: "REFUND_PENDING", scope: { kind: "SYSTEM" }, actorUserId: null, reason: "Rejected by shop", refundTo: input.refundTo ?? "WALLET" });
   }
   if (input.to === "REFUND_PENDING") {
-    await openFullRefund(db, order.id, input.reason ?? "Order refunded", input.actorUserId);
+    await refundOrder(db, {
+      orderId: order.id,
+      destination: input.refundTo ?? "WALLET",
+      reason: input.reason ?? "Order refunded",
+      idempotencyKey: `order-refund:${order.id}`,
+      requestedBy: input.actorUserId,
+    });
+    // Wallet refunds are instant: with nothing waiting at the provider, it is done.
+    if (await noRefundInFlight(db, order.id)) {
+      return transitionOrder(db, { orderId: order.id, to: "REFUNDED", scope: { kind: "SYSTEM" }, actorUserId: null });
+    }
   }
 
   return updated;
-}
-
-/** Creates the refund record for the full remaining paid amount, if any. */
-async function openFullRefund(db: Queryable, orderId: string, reason: string, requestedBy: string | null): Promise<void> {
-  const { rows } = await db.query<{ id: string; university_id: string; remaining: string }>(
-    `SELECT p.id, p.university_id,
-            p.amount_kobo - COALESCE((SELECT sum(r.amount_kobo) FROM refunds r WHERE r.payment_id = p.id AND r.status <> 'FAILED'), 0) AS remaining
-       FROM payments p WHERE p.order_id = $1 AND p.status = 'SUCCEEDED'`,
-    [orderId],
-  );
-  const pay = rows[0];
-  if (!pay || Number(pay.remaining) <= 0) return;
-  const inserted = await db.query<{ id: string }>(
-    `INSERT INTO refunds (payment_id, order_id, university_id, amount_kobo, reason, idempotency_key, requested_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,
-    [pay.id, orderId, pay.university_id, Number(pay.remaining), reason.slice(0, 1000).padEnd(3, "."), `order-refund:${orderId}`, requestedBy],
-  );
-  if (inserted.rows[0]) {
-    await db.query(`INSERT INTO jobs (kind, payload, dedupe_key) VALUES ('REFUND_PROCESS', $1, $2) ON CONFLICT (dedupe_key) DO NOTHING`, [
-      JSON.stringify({ refundId: inserted.rows[0].id }),
-      `refund:${inserted.rows[0].id}`,
-    ]);
-  }
 }
 
 /** Position (1-based) of an order in its shop's queue, or null if not queued. */

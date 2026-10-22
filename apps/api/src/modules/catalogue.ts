@@ -5,6 +5,7 @@ import { Errors } from "../http/errors.js";
 import { parse, uuid } from "../http/validate.js";
 import { PG_POOL } from "../infra/tokens.js";
 import { resolveShopPricing, shopPower, shopQueueEstimate } from "./pricing-data.js";
+import { providerLimits, trustBadge, type ProviderKind, type VerificationLevel } from "../../../../packages/domain/src/index.js";
 import { z } from "zod";
 
 /** Public, read-only information students need before signing up or ordering. */
@@ -45,9 +46,21 @@ export class CatalogueController {
   @Get("universities/:universityId/shops")
   async shops(@Param("universityId") universityIdRaw: string, @Query() q: unknown) {
     const universityId = parse(uuid, universityIdRaw);
-    const { campusId } = parse(z.object({ campusId: uuid.optional() }), q);
-    const { rows } = await this.pool.query<{ id: string; name: string; campus_id: string; campus_name: string; accepting_orders: boolean; location_note: string | null; opening_hours: unknown }>(
-      `SELECT s.id, s.name, s.campus_id, c.name AS campus_name, s.accepting_orders, s.location_note, s.opening_hours
+    const { campusId, includeUnverified } = parse(z.object({ campusId: uuid.optional(), includeUnverified: z.coerce.boolean().optional() }), q);
+    const { rows } = await this.pool.query<{
+      id: string;
+      name: string;
+      campus_id: string;
+      campus_name: string;
+      accepting_orders: boolean;
+      location_note: string | null;
+      opening_hours: unknown;
+      kind: ProviderKind;
+      verification_level: VerificationLevel;
+      cap: string;
+    }>(
+      `SELECT s.id, s.name, s.campus_id, c.name AS campus_name, s.accepting_orders, s.location_note, s.opening_hours,
+              s.kind, s.verification_level, u.student_provider_cap_kobo AS cap
          FROM shops s JOIN campuses c ON c.id = s.campus_id JOIN universities u ON u.id = s.university_id
         WHERE s.university_id = $1 AND s.status = 'APPROVED' AND u.status = 'ACTIVE' AND ($2::uuid IS NULL OR s.campus_id = $2)
         ORDER BY s.name`,
@@ -77,10 +90,19 @@ export class CatalogueController {
           queue: { jobsAhead: estimate.jobsAhead, sheetsAhead: estimate.sheetsAhead, estimatedMinutes: estimate.estimatedMinutes, basis: estimate.basis },
           // Reported by shop staff (light on / generator / light out), never sensed.
           power,
+          // Who is behind this shop, and how far that has been proven.
+          trust: {
+            kind: s.kind,
+            level: s.verification_level,
+            badge: trustBadge(s.kind, s.verification_level),
+            limits: providerLimits(s.kind, s.verification_level, Number(s.cap)),
+          },
         };
       }),
     );
-    return { items };
+    // A provider nobody has verified is not offered unless the student asks to see them.
+    const visible = includeUnverified ? items : items.filter((i) => i.trust.limits.listedByDefault);
+    return { items: visible, hiddenUnverified: items.length - visible.length };
   }
 
   /** Transparent, public price list for a shop: exactly what the quote engine will use. */

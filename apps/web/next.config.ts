@@ -23,6 +23,13 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   output: "standalone",
+  // `next build` and `next dev` must never share an output directory. A production
+  // build written while the dev server is watching leaves it serving a mix of the
+  // two, which surfaces as healthy components resolving to `undefined`
+  // ("Element type is invalid…") on pages that are perfectly fine. Deployment is
+  // unaffected: a build always runs with NODE_ENV=production, so it still writes
+  // to .next, which is what the Dockerfile copies.
+  distDir: isProd ? ".next" : ".next-dev",
   outputFileTracingRoot: new URL("../../", import.meta.url).pathname,
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${API_ORIGIN}/:path*` }];
