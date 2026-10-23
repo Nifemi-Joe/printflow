@@ -65,10 +65,11 @@ async function send(path: string, method: string, init: ApiInit): Promise<Respon
 export async function refreshCsrf(): Promise<boolean> {
   const res = await fetch(`${API_BASE}/auth/session`, { credentials: "include" }).catch(() => null);
   const body = (await res?.json().catch(() => null)) as { authenticated?: boolean; csrfToken?: string } | null;
-  if (body?.authenticated && body.csrfToken) {
+  if (body?.csrfToken) {
     csrfToken = body.csrfToken;
     return true;
   }
+
   csrfToken = "";
   return false;
 }
