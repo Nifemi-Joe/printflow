@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { Journey } from "@/components/landing/Journey";
-import { OnboardingForm } from "@/components/landing/OnboardingForm";
+import { ContactForm } from "@/components/landing/ContactForm";
 import { PriceDemo } from "@/components/landing/PriceDemo";
 import { Logo } from "@/components/ui";
-import "./landing.css";
 
 /**
  * The four things that happen to a document, in order. They are the page's
@@ -63,187 +62,203 @@ const FAQ = [
 
 export default function Landing() {
   return (
-      <>
-        <a href="#main" className="skip-link">
-          Skip to content
-        </a>
-        <header className="site-header">
-          <div className="container">
-            <Link href="/" className="brand" aria-label="PrintFlow home">
-              <Logo /> PrintFlow
+    <>
+      <a href="#main" className="skip-link">
+        Skip to content
+      </a>
+      <header className="site-header">
+        <div className="container">
+          <Link href="/" className="brand" aria-label="PrintFlow home">
+            <Logo /> PrintFlow
+          </Link>
+          <nav aria-label="Main">
+            <a className="hide-sm" href="#how">
+              How it works
+            </a>
+            <a className="hide-sm" href="#shops">
+              For shops
+            </a>
+            <a className="hide-sm" href="#universities">
+              For universities
+            </a>
+            <Link className="hide-sm" href="/contact">
+              Contact
             </Link>
-            <nav aria-label="Main">
-              <a className="hide-sm" href="#how">
-                How it works
-              </a>
-              <a className="hide-sm" href="#shops">
-                For shops
-              </a>
-              <a className="hide-sm" href="#universities">
-                For universities
-              </a>
-              <Link href="/login">Sign in</Link>
-              <Link href="/register" className="btn btn-primary btn-small">
-                Start printing
-              </Link>
-            </nav>
+            <Link href="/login">Sign in</Link>
+            <Link href="/register" className="btn btn-primary btn-small">
+              Start printing
+            </Link>
+          </nav>
+        </div>
+      </header>
+
+      <main id="main">
+        <section className="container">
+          <Journey
+            steps={STEPS.length + 1}
+            lead={
+              <>
+                <h1>Print your notes without the queue.</h1>
+                <p className="lede">
+                  Upload a PDF or Word file, see the exact price from your campus price list, pay online, and collect from the shop with a one-time code.
+                </p>
+                <div className="row" style={{ marginTop: "var(--space-6)" }}>
+                  <Link href="/register" className="btn btn-primary">
+                    Start printing
+                  </Link>
+                  <Link href="/shop/apply" className="btn btn-quiet">
+                    Register a print shop
+                  </Link>
+                </div>
+                <p className="journey-cue">Keep scrolling to follow one document from a phone to the counter.</p>
+              </>
+            }
+          >
+            {STEPS.map((s) => (
+              <li className="journey-step" key={s.n} id={s.id}>
+                <p className="journey-n" aria-hidden="true">
+                  {s.n}
+                </p>
+                <h2>{s.title}</h2>
+                <p>{s.body}</p>
+              </li>
+            ))}
+          </Journey>
+        </section>
+
+        <section className="band" aria-labelledby="price-title">
+          <div className="container">
+            <h2 id="price-title">See what a job costs</h2>
+            <p className="muted">Change the options to see how the price is built up, line by line.</p>
+            <PriceDemo />
           </div>
-        </header>
+        </section>
 
-        <main id="main">
-          <section className="container">
-            <Journey
-                steps={STEPS.length + 1}
-                lead={
-                  <>
-                    <h1>Print your notes without the queue.</h1>
-                    <p className="lede">
-                      Upload a PDF or Word file, see the exact price from your campus price list, pay online, and collect from the shop with a one-time code.
-                    </p>
-                    <div className="row" style={{ marginTop: "var(--space-6)" }}>
-                      <Link href="/register" className="btn btn-primary">
-                        Start printing
-                      </Link>
-                      <Link href="/shop/apply" className="btn btn-quiet">
-                        Register a print shop
-                      </Link>
-                    </div>
-                    <p className="journey-cue">Keep scrolling to follow one document from a phone to the counter.</p>
-                  </>
-                }
-            >
-              {STEPS.map((s) => (
-                  <li className="journey-step" key={s.n} id={s.id}>
-                    <p className="journey-n" aria-hidden="true">
-                      {s.n}
-                    </p>
-                    <h2>{s.title}</h2>
-                    <p>{s.body}</p>
-                  </li>
-              ))}
-            </Journey>
-          </section>
-
-          <section className="band" aria-labelledby="price-title">
-            <div className="container">
-              <h2 id="price-title">See what a job costs</h2>
-              <p className="muted">Change the options to see how the price is built up, line by line.</p>
-              <PriceDemo />
-            </div>
-          </section>
-
-          <section className="band band-ink" id="shops" aria-labelledby="shops-title">
-            <div className="container split">
-              <div>
-                <h2 id="shops-title">For print shops: a queue that runs itself</h2>
-                <ul className="plain-list">
-                  <li>Paid jobs arrive in order with the exact spec, page count and a print-ready PDF.</li>
-                  <li>Accept, print, pause, report a fault and check quality from the counter or a phone.</li>
-                  <li>Hand over prints only against the student&apos;s one-time code. No more mix-ups.</li>
-                  <li>Give each staff member only the permissions they need, and see every action in the log.</li>
-                  <li>Daily reconciliation of payments, refunds and collected jobs.</li>
-                </ul>
-                <Link href="/shop/apply" className="btn btn-primary" style={{ marginTop: "1rem" }}>
+        <section className="band band-ink" id="shops" aria-labelledby="shops-title">
+          <div className="container split">
+            <div>
+              <h2 id="shops-title">For print shops: a queue that runs itself</h2>
+              <ul className="plain-list">
+                <li>Paid jobs arrive in order with the exact spec, page count and a print-ready PDF.</li>
+                <li>Accept, print, pause, report a fault and check quality from the counter or a phone.</li>
+                <li>Hand over prints only against the student&apos;s one-time code. No more mix-ups.</li>
+                <li>Give each staff member only the permissions they need, and see every action in the log.</li>
+                <li>Daily reconciliation of payments, refunds and collected jobs.</li>
+              </ul>
+              <div className="row" style={{ marginTop: "1rem" }}>
+                <Link href="/shop/apply" className="btn btn-primary">
                   Register your shop
                 </Link>
+                <Link href="/contact?as=shop" className="btn btn-quiet" style={{ color: "#fff", borderColor: "rgba(255,255,255,.4)" }}>
+                  My university isn&apos;t on PrintFlow
+                </Link>
               </div>
-              <div className="queue-board" aria-label="Example shop queue">
-                <div className="q-row">
+            </div>
+            <div className="queue-board" aria-label="Example shop queue">
+              <div className="q-row">
                 <span>
                   <strong>PF-7KQ2M9XA</strong> 48 sheets, A4 B&amp;W, stapled
                 </span>
-                  <span>Printing</span>
-                </div>
-                <div className="q-row">
+                <span>Printing</span>
+              </div>
+              <div className="q-row">
                 <span>
                   <strong>PF-H3N8V2LC</strong> 12 sheets, A4 colour
                 </span>
-                  <span>Accepted</span>
-                </div>
-                <div className="q-row">
+                <span>Accepted</span>
+              </div>
+              <div className="q-row">
                 <span>
                   <strong>PF-Q9D4T7RW</strong> 120 sheets, spiral bound
                 </span>
-                  <span>Paid</span>
-                </div>
-                <div className="q-row">
+                <span>Paid</span>
+              </div>
+              <div className="q-row">
                 <span>
                   <strong>PF-B5Z1K8MN</strong> 6 sheets, A3 B&amp;W
                 </span>
-                  <span>Ready</span>
-                </div>
+                <span>Ready</span>
               </div>
             </div>
-          </section>
+          </div>
+        </section>
 
-          <section className="band" id="universities" aria-labelledby="uni-title">
-            <div className="container split">
-              <div>
-                <h2 id="uni-title">For universities: fair prices you control</h2>
-                <p>Approve which shops can trade on campus, publish the price list, and see every order, refund and dispute in one place.</p>
-                <ul className="plain-list">
-                  <li>Choose university-set prices, or let approved shops set prices within limits you agree.</li>
-                  <li>Price lists are versioned with effective dates. A student&apos;s confirmed price never changes.</li>
-                  <li>Suspend a shop in one step. Resolve disputes with full or partial refunds.</li>
-                  <li>Set how long documents are kept, and handle data export and deletion requests.</li>
-                </ul>
-              </div>
-              <div className="sheet" id="onboarding">
-                <h3>Bring PrintFlow to your campus</h3>
-                <p className="muted">Onboarding: we set up your campuses and price list with you, your team approves the first shops, then students can order.</p>
-                <OnboardingForm />
-              </div>
+        <section className="band" id="universities" aria-labelledby="uni-title">
+          <div className="container split">
+            <div>
+              <h2 id="uni-title">For universities: fair prices you control</h2>
+              <p>Approve which shops can trade on campus, publish the price list, and see every order, refund and dispute in one place.</p>
+              <ul className="plain-list">
+                <li>Choose university-set prices, or let approved shops set prices within limits you agree.</li>
+                <li>Price lists are versioned with effective dates. A student&apos;s confirmed price never changes.</li>
+                <li>Suspend a shop in one step. Resolve disputes with full or partial refunds.</li>
+                <li>Set how long documents are kept, and handle data export and deletion requests.</li>
+              </ul>
             </div>
-          </section>
-
-          <section className="band" aria-labelledby="pricing-title">
-            <div className="container split">
-              <div>
-                <h2 id="pricing-title">What students pay</h2>
-                <p>The printing price comes from the campus price list. PrintFlow adds a service fee that is shown as a separate line on every quote, before payment. There are no other charges.</p>
-              </div>
-              <div>
-                <h2>What shops and universities pay</h2>
-                <p>Shops receive the printing price of every job they complete. Terms for universities are agreed during onboarding; ask us using the form above.</p>
-              </div>
+            <div className="sheet" id="onboarding">
+              <h3>Bring PrintFlow to your campus</h3>
+              <p className="muted">We set up your campuses and price list with you, your team approves the first shops, then students can order.</p>
+              <ContactForm />
             </div>
-          </section>
+          </div>
+        </section>
 
-          <section className="band" aria-labelledby="faq-title">
-            <div className="container" style={{ maxWidth: 820 }}>
-              <h2 id="faq-title">Questions</h2>
-              {FAQ.map((f) => (
-                  <details className="faq" key={f.q}>
-                    <summary>{f.q}</summary>
-                    <p>{f.a}</p>
-                  </details>
-              ))}
+        <section className="band" aria-labelledby="pricing-title">
+          <div className="container split">
+            <div>
+              <h2 id="pricing-title">What students pay</h2>
+              <p>The printing price comes from the campus price list. PrintFlow adds a service fee that is shown as a separate line on every quote, before payment. There are no other charges.</p>
             </div>
-          </section>
-
-          <section className="band band-ink" aria-labelledby="cta-title">
-            <div className="container">
-              <h2 id="cta-title">Your next handout, printed before you get there.</h2>
-              <div className="row">
-                <Link href="/register" className="btn btn-primary" style={{ background: "#fff", color: "var(--emerald-deep)" }}>
-                  Create a student account
-                </Link>
-                <Link href="/login" className="btn btn-quiet" style={{ color: "#fff", borderColor: "rgba(255,255,255,.4)" }}>
-                  Sign in
-                </Link>
-              </div>
+            <div>
+              <h2>What shops and universities pay</h2>
+              <p>Shops receive the printing price of every job they complete. Terms for universities are agreed during onboarding; ask us using the form above.</p>
             </div>
-          </section>
-        </main>
+          </div>
+        </section>
 
-        <footer className="site-footer">
-          <div className="container row" style={{ justifyContent: "space-between" }}>
-            <span>PrintFlow, campus printing for Nigerian universities.</span>
-            <span>
+        <section className="band" aria-labelledby="faq-title">
+          <div className="container" style={{ maxWidth: 820 }}>
+            <h2 id="faq-title">Questions</h2>
+            {FAQ.map((f) => (
+              <details className="faq" key={f.q}>
+                <summary>{f.q}</summary>
+                <p>{f.a}</p>
+              </details>
+            ))}
+            {/* A student reading the questions is the one person most likely to
+                need a human, and the contact form is otherwise buried in a
+                section written for universities. */}
+            <p style={{ marginTop: "var(--space-5)" }}>
+              Something gone wrong with an order, or a question not answered here?{" "}
+              <Link href="/contact?as=student">Tell us about it</Link> and we&apos;ll reply.
+            </p>
+          </div>
+        </section>
+
+        <section className="band band-ink" aria-labelledby="cta-title">
+          <div className="container">
+            <h2 id="cta-title">Your next handout, printed before you get there.</h2>
+            <div className="row">
+              <Link href="/register" className="btn btn-primary" style={{ background: "#fff", color: "var(--emerald-deep)" }}>
+                Create a student account
+              </Link>
+              <Link href="/login" className="btn btn-quiet" style={{ color: "#fff", borderColor: "rgba(255,255,255,.4)" }}>
+                Sign in
+              </Link>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer className="site-footer">
+        <div className="container row" style={{ justifyContent: "space-between" }}>
+          <span>PrintFlow, campus printing for Nigerian universities.</span>
+          <span className="row">
+            <Link href="/contact">Contact us</Link>
             <Link href="/privacy">Privacy</Link>
           </span>
-          </div>
-        </footer>
-      </>
+        </div>
+      </footer>
+    </>
   );
 }

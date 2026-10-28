@@ -5,63 +5,11 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="5b2c4cd0-851d-4c4c-874c-f2d1067dad54" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/apps/api/src/infra/s3.ts" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/apps/api/src/modules/wallet.ts" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/apps/api/test/wallet.test.ts" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/apps/mobile/app/student/wallet.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/apps/web/app/admin/[universityId]/credit/page.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/apps/web/app/student/wallet/page.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/apps/web/e2e/wallet.spec.ts" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/db/migrations/0007_wallet.sql" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/db/test/wallet.test.ts" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/esbuild.config.mjs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/packages/data/src/wallet.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/api/scripts/seed-demo.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/scripts/seed-demo.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/api/src/app.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/app.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/api/src/config.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/config.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/api/src/http/errors.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/http/errors.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/api/src/http/schemas.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/http/schemas.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/api/src/modules/catalogue.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/modules/catalogue.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/api/src/modules/documents.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/modules/documents.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/api/src/modules/payments.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/modules/payments.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/api/src/modules/phone.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/modules/phone.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/api/src/modules/shop.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/modules/shop.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/api/src/modules/student-orders.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/modules/student-orders.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/api/src/modules/university.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/modules/university.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/api/src/openapi.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/openapi.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/api/test/harness.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/test/harness.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/api/test/security.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/test/security.test.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/api/tsconfig.json" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/tsconfig.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/mobile/app/order/[id].tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/mobile/app/order/[id].tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/mobile/app/student/_layout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/mobile/app/student/_layout.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/mobile/app/student/print.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/mobile/app/student/print.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/mobile/scripts/web-smoke.mjs" beforeDir="false" afterPath="$PROJECT_DIR$/apps/mobile/scripts/web-smoke.mjs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/web/app/admin/[universityId]/disputes/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/app/admin/[universityId]/disputes/page.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/web/app/admin/[universityId]/layout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/app/admin/[universityId]/layout.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/web/app/admin/[universityId]/orders/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/app/admin/[universityId]/orders/page.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/web/app/checkout/test/[reference]/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/app/checkout/test/[reference]/page.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/web/app/student/layout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/app/student/layout.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/web/app/student/orders/[orderId]/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/app/student/orders/[orderId]/page.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/web/app/student/print/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/app/student/print/page.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/web/next.config.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/next.config.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/web/playwright.config.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/playwright.config.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/apps/worker/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/apps/worker/package.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/worker/src/handlers.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/worker/src/handlers.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/worker/src/main.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/worker/src/main.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/worker/src/runner.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/worker/src/runner.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/db/test/workflow.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/db/test/workflow.test.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/API.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/API.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/DATABASE.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/DATABASE.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/QA_REPORT.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/QA_REPORT.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/THREAT_MODEL.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/THREAT_MODEL.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/TRACEABILITY.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/TRACEABILITY.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/openapi.json" beforeDir="false" afterPath="$PROJECT_DIR$/docs/openapi.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/packages/data/src/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/packages/data/src/index.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/packages/data/src/orders.ts" beforeDir="false" afterPath="$PROJECT_DIR$/packages/data/src/orders.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/packages/data/src/payments.ts" beforeDir="false" afterPath="$PROJECT_DIR$/packages/data/src/payments.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/packages/storage/src/storage.ts" beforeDir="false" afterPath="$PROJECT_DIR$/packages/storage/src/storage.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/pnpm-lock.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/pnpm-lock.yaml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -71,41 +19,41 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
-  "lastFilter": {
-    "state": "OPEN",
-    "assignee": "Nifemi-Joe"
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;Nifemi-Joe&quot;
   }
-}]]></component>
-  <component name="GithubPullRequestsUISettings"><![CDATA[{
-  "selectedUrlAndAccountId": {
-    "url": "https://github.com/Nifemi-Joe/printflow.git",
-    "accountId": "f4061fb9-e94d-4da8-82f2-8eb46943093f"
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/Nifemi-Joe/printflow.git&quot;,
+    &quot;accountId&quot;: &quot;f4061fb9-e94d-4da8-82f2-8eb46943093f&quot;
   }
-}]]></component>
+}</component>
   <component name="McpProjectServerCommands">
     <commands />
     <urls />
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.6314425894724542" />
-      <entry key="MS500" value="2.9723076354013336" />
-      <entry key="S2" value="6.6507352733458385" />
-      <entry key="S5" value="8.834600615469071" />
-      <entry key="S10" value="9.82791226749531" />
-      <entry key="S30" value="10.587310744603247" />
-      <entry key="S60" value="10.79076057065606" />
-      <entry key="M2" value="10.894645153301843" />
-      <entry key="M5" value="10.9576801441906" />
-      <entry key="M10" value="10.97881199568146" />
-      <entry key="M15" value="10.986231994577684" />
-      <entry key="M30" value="11.07157240950223" />
-      <entry key="H1" value="12.15221248625223" />
-      <entry key="H2" value="15.430327173968578" />
-      <entry key="H4" value="19.67906723795704" />
-      <entry key="D1" value="26.198048098860333" />
-      <entry key="W1" value="27.730054280914306" />
+      <entry key="MS100" value="1.1373708897041248" />
+      <entry key="MS500" value="2.8120006128124837" />
+      <entry key="S2" value="6.876730937209226" />
+      <entry key="S5" value="9.408013096894074" />
+      <entry key="S10" value="10.587701404699642" />
+      <entry key="S30" value="11.500341001900356" />
+      <entry key="S60" value="11.746348683599999" />
+      <entry key="M2" value="11.87220231318994" />
+      <entry key="M5" value="11.948645481535722" />
+      <entry key="M10" value="11.974285019373715" />
+      <entry key="M15" value="11.983211763093557" />
+      <entry key="M30" value="12.070050458661104" />
+      <entry key="H1" value="13.151377207170832" />
+      <entry key="H2" value="16.429796865146056" />
+      <entry key="H4" value="20.678729070382072" />
+      <entry key="D1" value="27.197973066562298" />
+      <entry key="W1" value="28.730042935182183" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -127,23 +75,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="1.5582155839851837" />
-      <entry key="MS500" value="2.9005455422772997" />
-      <entry key="S2" value="6.60375121933533" />
-      <entry key="S5" value="8.80987548293218" />
-      <entry key="S10" value="9.814246101530069" />
-      <entry key="S30" value="10.582427560844078" />
-      <entry key="S60" value="10.7882753461103" />
-      <entry key="M2" value="10.893391422079063" />
-      <entry key="M5" value="10.957175955671325" />
-      <entry key="M10" value="10.978559448603068" />
-      <entry key="M15" value="10.98606337810372" />
-      <entry key="M30" value="11.07147318305928" />
-      <entry key="H1" value="12.152065210551978" />
-      <entry key="H2" value="15.43010877573738" />
-      <entry key="H4" value="19.678865498469783" />
-      <entry key="D1" value="26.19799102738816" />
-      <entry key="W1" value="27.730045344238654" />
+      <entry key="MS100" value="0.21540712072536933" />
+      <entry key="MS500" value="2.377880011049107" />
+      <entry key="S2" value="6.7188360674338155" />
+      <entry key="S5" value="9.336195842851295" />
+      <entry key="S10" value="10.54992756511773" />
+      <entry key="S30" value="11.487283404868968" />
+      <entry key="S60" value="11.739757954789349" />
+      <entry key="M2" value="11.868891176470504" />
+      <entry key="M5" value="11.947317203668804" />
+      <entry key="M10" value="11.97362023889203" />
+      <entry key="M15" value="11.982768282387267" />
+      <entry key="M30" value="12.069813781116626" />
+      <entry key="H1" value="13.15116120686047" />
+      <entry key="H2" value="16.42954410646365" />
+      <entry key="H4" value="20.678510150235333" />
+      <entry key="D1" value="27.19791313121204" />
+      <entry key="W1" value="28.730033589360893" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -160,11 +108,12 @@
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "RunOnceActivity.MCP Project settings loaded": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.typescript.service.memoryLimit.init": "true",
     "codeWithMe.voiceChat.enabledByDefault": "false",
     "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
     "dart.analysis.tool.window.visible": "false",
-    "git-widget-placeholder": "main",
+    "git-widget-placeholder": "staging",
     "javascript.preferred.runtime.type.id": "node",
     "junie.onboarding.icon.badge.shown": "true",
     "last_opened_file_path": "/Users/mac/Downloads/printflow/apps/web/app/admin/[universityId]",
@@ -181,7 +130,7 @@
     "npm.dev:worker.executor": "Run",
     "npm.ios.executor": "Run",
     "to.speed.mode.migration.done": "true",
-    "ts.external.directory.path": "/Users/mac/Downloads/printflow/node_modules/typescript/lib"
+    "ts.external.directory.path": "/Applications/WebStorm 2.app/Contents/plugins/javascript-plugin/jsLanguageServicesImpl/external"
   }
 }]]></component>
   <component name="RecentsManager">
@@ -193,7 +142,7 @@
       <recent name="$PROJECT_DIR$/apps/api/src/http" />
     </key>
   </component>
-  <component name="RunManager" selected="npm.ios">
+  <component name="RunManager" selected="npm.dev:worker">
     <configuration name="db:migrate" type="js.build_tools.npm" temporary="true" nameIsGenerated="true">
       <package-json value="$PROJECT_DIR$/package.json" />
       <command value="run" />
@@ -246,10 +195,10 @@
     </configuration>
     <recent_temporary>
       <list>
-        <item itemvalue="npm.dev:web" />
-        <item itemvalue="npm.ios" />
-        <item itemvalue="npm.dev:worker" />
         <item itemvalue="npm.dev:api" />
+        <item itemvalue="npm.dev:web" />
+        <item itemvalue="npm.dev:worker" />
+        <item itemvalue="npm.ios" />
         <item itemvalue="npm.db:migrate" />
       </list>
     </recent_temporary>
@@ -270,6 +219,7 @@
       <updated>1791792430835</updated>
       <workItem from="1791792432054" duration="6416000" />
       <workItem from="1792092633956" duration="13140000" />
+      <workItem from="1792992111552" duration="4067000" />
     </task>
     <servers />
   </component>

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { COLOUR_MODES, PAPER_SIZES, PRICING_MODES, SIDES } from "../../../../packages/pricing/src/index.js";
-import { normalizePhone, ORDER_STATUSES, PRINTER_PAPER_SIZES, SHOP_PERMISSIONS } from "../../../../packages/domain/src/index.js";
+import { ENQUIRY_KINDS, ENQUIRY_PRIORITIES, ENQUIRY_STATUSES, normalizePhone, ORDER_STATUSES, PRINTER_PAPER_SIZES, SHOP_PERMISSIONS } from "../../../../packages/domain/src/index.js";
 
 const id = z.string().uuid();
 const email = z
@@ -318,6 +318,46 @@ export const Schemas = {
 
   ResetMfa: z.object({ email, reason: z.string().trim().min(10).max(1000) }),
   CreateUniversity: z.object({ slug: z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}$/), name }),
+
+  /**
+   * The website contact form. `website` is a honeypot: it is hidden from people
+   * and left empty by them, so anything in it came from something filling every
+   * field it found. Nothing else here rejects a message — a real university
+   * writing two short lines must always get through.
+   */
+  CreateEnquiry: z.object({
+    kind: z.enum(ENQUIRY_KINDS),
+    name: z.string().trim().min(2).max(120),
+    email,
+    phone: z.string().trim().min(6).max(30).optional().or(z.literal("").transform(() => undefined)),
+    organisation: z.string().trim().min(2).max(200).optional().or(z.literal("").transform(() => undefined)),
+    role: z.string().trim().min(2).max(120).optional().or(z.literal("").transform(() => undefined)),
+    message: z.string().trim().min(10).max(4000),
+    website: z.string().max(200).optional(),
+  }),
+  EnquiryReply: z.object({ body: z.string().trim().min(2).max(8000) }),
+  EnquiryNote: z.object({ body: z.string().trim().min(2).max(8000) }),
+  UpdateEnquiry: z.object({
+    status: z.enum(ENQUIRY_STATUSES).optional(),
+    priority: z.enum(ENQUIRY_PRIORITIES).optional(),
+    kind: z.enum(ENQUIRY_KINDS).optional(),
+    assignedTo: z.string().uuid().nullish(),
+    reason: z.string().trim().min(3).max(500).optional(),
+  }),
+  /**
+   * Turns an enquiry into somewhere a shop can actually trade. `universityId`
+   * attaches to a tenant we already have; otherwise one is created, and whether
+   * it is created UNCLAIMED depends on who was asking.
+   */
+  ConvertEnquiry: z.object({
+    universityId: z.string().uuid().optional(),
+    universityName: name.optional(),
+    campusName: name.default("Main campus"),
+    ownerEmail: email.optional(),
+    shopName: name.optional(),
+    pricingMode: z.enum(PRICING_MODES).optional(),
+    note: z.string().trim().max(500).optional(),
+  }),
   UpdateUniversity: z.object({
     status: z.enum(["ONBOARDING", "ACTIVE", "SUSPENDED"]).optional(),
     serviceFeeFixedKobo: kobo.optional(),

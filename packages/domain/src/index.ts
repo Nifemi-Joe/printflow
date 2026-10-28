@@ -6,3 +6,4 @@ export * from "./power.js";
 export * from "./printer.js";
 export * from "./otp.js";
 export * from "./provider.js";
+export * from "./enquiry.js"

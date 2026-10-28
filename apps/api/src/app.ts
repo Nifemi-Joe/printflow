@@ -19,7 +19,8 @@ import { AuthController, AuthService, MeController } from "./modules/auth.js";
 import { PhoneController } from "./modules/phone.js";
 import { CatalogueController } from "./modules/catalogue.js";
 import { DocumentsController } from "./modules/documents.js";
-import { FilesController, HealthController, TestPaymentsController, WebhookProcessor, WebhooksController } from "./modules/payments.js";
+import { FilesController, HealthController, PaymentsController, TestPaymentsController, WebhookProcessor, WebhooksController } from "./modules/payments.js";
+import { EnquiriesController, PlatformEnquiriesController } from "./modules/enquiries.js";
 import { PlatformController } from "./modules/platform.js";
 import { ShopController } from "./modules/shop.js";
 import { StudentOrdersController } from "./modules/student-orders.js";
@@ -90,10 +91,13 @@ export const CONTROLLERS = [
   StudentOrdersController,
   WebhooksController,
   TestPaymentsController,
+  PaymentsController,
   FilesController,
   ShopController,
   UniversityAdminController,
   PlatformController,
+  EnquiriesController,
+  PlatformEnquiriesController,
   WalletController,
   UniversityWalletController,
   ProviderVerificationController,

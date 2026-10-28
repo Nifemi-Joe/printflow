@@ -44,7 +44,14 @@ export default function Platform() {
   };
 
   return (
-    <AppShell staff title="Platform" items={[{ href: "/platform", label: "Universities and health" }]}>
+    <AppShell
+      staff
+      title="Platform"
+      items={[
+        { href: "/platform", label: "Universities and health" },
+        { href: "/platform/enquiries", label: "Enquiries" },
+      ]}
+    >
       <PageHead title="Platform" />
       {msg && (
         <div className="notice" role="status">

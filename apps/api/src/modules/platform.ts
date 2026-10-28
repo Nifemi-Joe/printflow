@@ -12,20 +12,20 @@ import { CONFIG, PG_POOL } from "../infra/tokens.js";
 @Controller("v1/platform")
 export class PlatformController {
   constructor(
-    @Inject(PG_POOL) private readonly pool: Pool,
-    @Inject(CONFIG) private readonly cfg: AppConfig,
-    @Inject(Access) private readonly access: Access,
+      @Inject(PG_POOL) private readonly pool: Pool,
+      @Inject(CONFIG) private readonly cfg: AppConfig,
+      @Inject(Access) private readonly access: Access,
   ) {}
 
   @Get("universities")
   async universities(@Req() req: PfRequest) {
     this.access.platform(req, ["PLATFORM_ADMIN", "PLATFORM_SUPPORT"]);
     const { rows } = await this.pool.query(
-      `SELECT u.id, u.slug, u.name, u.status, u.pricing_mode AS "pricingMode", u.service_fee_fixed_kobo AS "serviceFeeFixedKobo", u.service_fee_bps AS "serviceFeeBps",
-              (SELECT count(*)::int FROM shops s WHERE s.university_id = u.id AND s.status = 'APPROVED') AS "approvedShops",
-              (SELECT count(*)::int FROM student_profiles sp WHERE sp.university_id = u.id) AS students,
-              (SELECT count(*)::int FROM orders o WHERE o.university_id = u.id AND o.created_at > now() - interval '30 days') AS "ordersLast30Days",
-              EXISTS (SELECT 1 FROM rate_cards r WHERE r.university_id = u.id AND r.status = 'PUBLISHED') AS "hasPublishedPricing"
+        `SELECT u.id, u.slug, u.name, u.status, u.tenancy, u.claimed_at AS "claimedAt", u.pricing_mode AS "pricingMode", u.service_fee_fixed_kobo AS "serviceFeeFixedKobo", u.service_fee_bps AS "serviceFeeBps",
+                (SELECT count(*)::int FROM shops s WHERE s.university_id = u.id AND s.status = 'APPROVED') AS "approvedShops",
+                (SELECT count(*)::int FROM student_profiles sp WHERE sp.university_id = u.id) AS students,
+                (SELECT count(*)::int FROM orders o WHERE o.university_id = u.id AND o.created_at > now() - interval '30 days') AS "ordersLast30Days",
+           EXISTS (SELECT 1 FROM rate_cards r WHERE r.university_id = u.id AND r.status = 'PUBLISHED') AS "hasPublishedPricing"
          FROM universities u ORDER BY u.name`,
     );
     return { items: rows };
@@ -73,13 +73,62 @@ export class PlatformController {
       if (!ready.rowCount) throw Errors.rule("add at least one campus before activating a university", "NOT_READY");
     }
     const { rows } = await this.pool.query(
-      `UPDATE universities SET status = COALESCE($2, status), service_fee_fixed_kobo = COALESCE($3, service_fee_fixed_kobo), service_fee_bps = COALESCE($4, service_fee_bps)
-        WHERE id = $1 RETURNING id, slug, name, status, service_fee_fixed_kobo AS "serviceFeeFixedKobo", service_fee_bps AS "serviceFeeBps"`,
-      [id, input.status ?? null, input.serviceFeeFixedKobo ?? null, input.serviceFeeBps ?? null],
+        `UPDATE universities SET status = COALESCE($2, status), service_fee_fixed_kobo = COALESCE($3, service_fee_fixed_kobo), service_fee_bps = COALESCE($4, service_fee_bps)
+         WHERE id = $1 RETURNING id, slug, name, status, service_fee_fixed_kobo AS "serviceFeeFixedKobo", service_fee_bps AS "serviceFeeBps"`,
+        [id, input.status ?? null, input.serviceFeeFixedKobo ?? null, input.serviceFeeBps ?? null],
     );
     if (!rows[0]) throw Errors.notFound("university");
     await audit(this.pool, { universityId: id, actorUserId: a.userId, actorKind: "PLATFORM_ADMIN", action: "university.updated", entityType: "university", entityId: id, requestId: req.id, details: input });
     return rows[0];
+  }
+
+  /**
+   * A university signs up for a tenant PrintFlow had been running on their behalf.
+   *
+   * Nothing moves. The tenant id never changes, so every order, document, payment
+   * and audit row written while it was unclaimed is already theirs — there is no
+   * migration here, which is the entire reason unclaimed tenants are real
+   * universities rather than a separate kind of thing.
+   *
+   * The platform staff who stood in as administrators are removed in the same
+   * transaction. Standing access to a university's student orders is defensible
+   * while we are the only ones who can approve a shop there; the moment they have
+   * their own administrators, it is not.
+   */
+  @Post("universities/:universityId/claim")
+  @HttpCode(200)
+  async claim(@Req() req: PfRequest, @Param("universityId") uid: string, @Body() body: unknown) {
+    const a = this.access.platform(req);
+    const id = parse(uuid, uid);
+    const { email } = parse(Schemas.AssignAdmin, body);
+    return withTransaction(this.pool, async (c) => {
+      const uni = await c.query<{ tenancy: string; name: string }>(`SELECT tenancy, name FROM universities WHERE id = $1 FOR UPDATE`, [id]);
+      if (!uni.rows[0]) throw Errors.notFound("university");
+      if (uni.rows[0].tenancy !== "UNCLAIMED") throw Errors.rule("this university already runs its own account", "ALREADY_CLAIMED");
+
+      const u = await c.query<{ id: string }>(`SELECT id FROM users WHERE email = $1 AND status = 'ACTIVE'`, [email]);
+      if (!u.rows[0]) throw Errors.rule("ask this person to create a PrintFlow account first", "USER_NOT_FOUND");
+
+      await c.query(`INSERT INTO university_staff (user_id, university_id, role) VALUES ($1, $2, 'UNIVERSITY_ADMIN') ON CONFLICT DO NOTHING`, [u.rows[0].id, id]);
+      // Hand back the keys: platform staff stop being administrators here.
+      const removed = await c.query(
+          `DELETE FROM university_staff s USING users pu
+          WHERE s.university_id = $1 AND s.user_id = pu.id AND pu.platform_role IS NOT NULL AND s.user_id <> $2`,
+          [id, u.rows[0].id],
+      );
+      await c.query(`UPDATE universities SET tenancy = 'UNIVERSITY', claimed_at = now(), claimed_by = $2 WHERE id = $1`, [id, a.userId]);
+      await audit(c, {
+        universityId: id,
+        actorUserId: a.userId,
+        actorKind: "PLATFORM_ADMIN",
+        action: "university.claimed",
+        entityType: "university",
+        entityId: id,
+        requestId: req.id,
+        details: { admin: email, platformAdminsRemoved: removed.rowCount ?? 0 },
+      });
+      return { id, tenancy: "UNIVERSITY", admin: email, platformAdminsRemoved: removed.rowCount ?? 0 };
+    });
   }
 
   @Post("universities/:universityId/admins")
@@ -105,8 +154,8 @@ export class PlatformController {
       this.pool.query(`SELECT kind, status, count(*)::int AS n FROM jobs GROUP BY kind, status ORDER BY kind, status`),
       this.pool.query(`SELECT id, kind, attempts, last_error AS "lastError", finished_at AS "finishedAt" FROM jobs WHERE status = 'DEAD' ORDER BY id DESC LIMIT 20`),
       this.pool.query(
-        `SELECT count(*) FILTER (WHERE NOT signature_valid)::int AS "invalidSignatures", count(*) FILTER (WHERE processing_error IS NOT NULL AND signature_valid)::int AS "processingErrors",
-                count(*)::int AS total FROM payment_webhook_events WHERE received_at > now() - interval '24 hours'`,
+          `SELECT count(*) FILTER (WHERE NOT signature_valid)::int AS "invalidSignatures", count(*) FILTER (WHERE processing_error IS NOT NULL AND signature_valid)::int AS "processingErrors",
+             count(*)::int AS total FROM payment_webhook_events WHERE received_at > now() - interval '24 hours'`,
       ),
       this.pool.query(`SELECT processing_status AS status, count(*)::int AS n FROM document_versions WHERE created_at > now() - interval '24 hours' GROUP BY processing_status`),
     ]);
@@ -118,9 +167,9 @@ export class PlatformController {
     this.access.platform(req, ["PLATFORM_ADMIN", "PLATFORM_SUPPORT"]);
     const { limit } = parse(Pagination, query);
     const { rows } = await this.pool.query(
-      `SELECT id, provider, event_id AS "eventId", event_type AS "eventType", signature_valid AS "signatureValid", processing_error AS "processingError",
-              received_at AS "receivedAt", processed_at AS "processedAt" FROM payment_webhook_events ORDER BY id DESC LIMIT $1`,
-      [limit],
+        `SELECT id, provider, event_id AS "eventId", event_type AS "eventType", signature_valid AS "signatureValid", processing_error AS "processingError",
+                received_at AS "receivedAt", processed_at AS "processedAt" FROM payment_webhook_events ORDER BY id DESC LIMIT $1`,
+        [limit],
     );
     return { items: rows };
   }

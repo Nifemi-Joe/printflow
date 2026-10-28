@@ -1053,3 +1053,87 @@ button[aria-pressed="true"] {
   font-size: var(--t-sm);
   color: var(--graphite-2);
 }
+
+/* ------------------------------------------------------------ enquiry inbox
+
+   A list of rows, not a stack of floating cards: one border each and no
+   shadow, so the eye runs down the names rather than over twelve edges. The
+   only things allowed colour are the two statuses that need an answer and a
+   wait that has gone past its target — a badge that appears on every row is
+   not a signal, it is wallpaper.                                            */
+
+.enq-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sheet);
+  padding: var(--space-4) var(--space-5);
+  transition: border-color 150ms ease;
+}
+.enq-row + .enq-row {
+  margin-top: var(--space-2);
+}
+.enq-row:hover {
+  border-color: var(--graphite-2);
+}
+.enq-row[aria-current="true"] {
+  border-color: var(--emerald);
+  box-shadow: inset 3px 0 0 var(--emerald);
+}
+.enq-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-4);
+}
+.enq-who {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--t-lg);
+  letter-spacing: -0.015em;
+  color: var(--graphite);
+}
+.enq-org {
+  display: block;
+  margin: 2px 0 0;
+  color: var(--graphite-2);
+  font-size: var(--t-sm);
+}
+.enq-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+.enq-kind {
+  color: var(--graphite-2);
+  font-size: var(--t-sm);
+}
+.enq-ref {
+  margin-left: auto;
+  font-size: var(--t-xs);
+  color: var(--graphite-2);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+/* The wait is the one number worth scanning for, so it is the one thing with
+   its own column and the only thing that turns red. */
+.enq-time {
+  font-size: var(--t-sm);
+  color: var(--graphite-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.enq-late {
+  color: var(--red);
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enq-row {
+    transition: none;
+  }
+}

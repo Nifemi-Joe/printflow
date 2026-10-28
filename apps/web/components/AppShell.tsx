@@ -4,14 +4,10 @@ import { InstallPrompt } from "./Pwa";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
+import type { NavItem } from "@/lib/nav";
 import { canOpen, homeFor, mfaPending, useRequireSession } from "@/lib/session";
 import { BrandLoader } from "./Splash";
 import { Logo } from "./ui";
-
-interface NavItem {
-    href: string;
-    label: string;
-}
 
 /** The signed-in frame: role navigation on the left (a drawer on phones). */
 export function AppShell({ children, title, items }: { children: ReactNode; title: string; items: NavItem[]; staff?: boolean }) {
